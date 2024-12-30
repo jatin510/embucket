@@ -1,5 +1,8 @@
 use crate::models::created_entity_response;
 use crate::sql::context::CustomContextProvider;
+use crate::sql::functions::date_add::DateAddFunc;
+use crate::sql::functions::greatest::GreatestFunc;
+use crate::sql::functions::least::LeastFunc;
 use crate::sql::functions::parse_json::ParseJsonFunc;
 use crate::sql::planner::ExtendedSqlToRel;
 use arrow::array::RecordBatch;
@@ -35,6 +38,9 @@ pub struct SqlExecutor {
 impl SqlExecutor {
     pub fn new(mut ctx: SessionContext) -> Self {
         ctx.register_udf(ScalarUDF::from(ParseJsonFunc::new()));
+        ctx.register_udf(ScalarUDF::from(DateAddFunc::new()));
+        ctx.register_udf(ScalarUDF::from(LeastFunc::new()));
+        ctx.register_udf(ScalarUDF::from(GreatestFunc::new()));
         register_all(&mut ctx).expect("Cannot register UDF JSON funcs");
         Self { ctx }
     }
@@ -75,8 +81,12 @@ impl SqlExecutor {
     pub fn preprocess_query(&self, query: &String) -> String {
         // Replace field[0].subfield -> json_get(json_get(field, 0), 'subfield')
         let re = regex::Regex::new(r"(\w+)\[(\d+)]\.(\w+)").unwrap();
+        let date_add = regex::Regex::new(r"(date|time|timestamp)(_?add)\(([a-zA-Z]+),").unwrap();
         let query = re
             .replace_all(query, "json_get(json_get($1, $2), '$3')")
+            .to_string();
+        let query = date_add
+            .replace_all(&query, "$1$2('$3',")
             .to_string();
         // TODO implement alter session logic
         query.replace(
@@ -323,7 +333,6 @@ impl SqlExecutor {
     ) -> Result<Vec<RecordBatch>> {
         let plan = self.get_custom_logical_plan(query, warehouse_name).await?;
         let res = self.ctx.execute_logical_plan(plan).await?.collect().await;
-        println!("Result: {:?}", res);
         res
     }
 
