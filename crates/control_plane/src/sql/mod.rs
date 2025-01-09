@@ -1,5 +1,6 @@
-pub mod planner;
 pub mod context;
-pub mod sql;
+pub mod execution;
+pub mod planner;
 
+pub mod error;
 pub mod functions;

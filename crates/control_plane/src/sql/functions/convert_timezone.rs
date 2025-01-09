@@ -1,7 +1,6 @@
-use arrow::array::Array;
+use arrow::datatypes::DataType;
 use arrow::datatypes::DataType::{Date32, Date64, Time32, Time64, Timestamp, Utf8};
 use arrow::datatypes::TimeUnit::{Microsecond, Millisecond, Nanosecond, Second};
-use arrow::datatypes::{DataType, Fields};
 use datafusion::common::{plan_err, Result};
 use datafusion::logical_expr::TypeSignature::Exact;
 use datafusion::logical_expr::{
@@ -12,6 +11,7 @@ use std::any::Any;
 #[derive(Debug)]
 pub struct ConvertTimezoneFunc {
     signature: Signature,
+    #[allow(dead_code)]
     aliases: Vec<String>,
 }
 
@@ -22,6 +22,7 @@ impl Default for ConvertTimezoneFunc {
 }
 
 impl ConvertTimezoneFunc {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             signature: Signature::one_of(
@@ -69,7 +70,7 @@ impl ScalarUDFImpl for ConvertTimezoneFunc {
         self
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "convert_timezone"
     }
 

@@ -30,15 +30,11 @@ use datafusion::logical_expr::sqlparser::ast;
 use datafusion::logical_expr::sqlparser::ast::{
     ArrayElemTypeDef, ColumnDef, ExactNumberInfo, Ident, ObjectName, TableConstraint,
 };
-use datafusion::logical_expr::{
-    CreateMemoryTable, DdlStatement, EmptyRelation,
-    LogicalPlan,
-};
+use datafusion::logical_expr::{CreateMemoryTable, DdlStatement, EmptyRelation, LogicalPlan};
 use datafusion::prelude::*;
 use datafusion::sql::parser::{DFParser, Statement as DFStatement};
 use datafusion::sql::planner::{
-    object_name_to_table_reference, ContextProvider, IdentNormalizer, PlannerContext, SqlToRel
-    ,
+    object_name_to_table_reference, ContextProvider, IdentNormalizer, PlannerContext, SqlToRel,
 };
 use datafusion::sql::sqlparser::ast::{
     ColumnDef as SQLColumnDef, ColumnOption, CreateTable as CreateTableStatement,
@@ -64,7 +60,7 @@ where
         Self {
             inner: SqlToRel::new(provider),
             provider,
-            ident_normalizer: Default::default(),
+            ident_normalizer: IdentNormalizer::default(),
         }
     }
 
@@ -81,7 +77,8 @@ where
         match self.handle_custom_statement(statement.clone()) {
             Ok(plan) => return Ok(plan),
             Err(e) => {
-                eprintln!("Custom statement parsing skipped: {statement} ");
+                // TODO: Tracing
+                eprintln!("Custom statement parsing skipped: {statement}: {e}");
             }
         }
 
@@ -96,60 +93,60 @@ where
         match statement.clone() {
             Statement::ShowVariable { variable } => self.show_variable_to_plan(&variable),
             Statement::CreateTable(CreateTableStatement {
-                                       query,
-                                       name,
-                                       columns,
-                                       constraints,
-                                       table_properties,
-                                       with_options,
-                                       if_not_exists,
-                                       or_replace,
-                                       ..
-                                   }) if table_properties.is_empty() && with_options.is_empty() => {
+                query,
+                name,
+                columns,
+                constraints,
+                table_properties,
+                with_options,
+                if_not_exists,
+                or_replace,
+                ..
+            }) if table_properties.is_empty() && with_options.is_empty() => {
                 // Merge inline constraints and existing constraints
                 let mut all_constraints = constraints;
                 let inline_constraints = calc_inline_constraints_from_columns(&columns);
                 all_constraints.extend(inline_constraints);
                 // Build column default values
                 let column_defaults = self.build_column_defaults(&columns, planner_context)?;
+                // println!("column_defaults: {:?}", column_defaults);
+                // println!("statement 11: {:?}", statement);
                 let has_columns = !columns.is_empty();
                 let schema = self.build_schema(columns.clone())?.to_dfschema_ref()?;
                 if has_columns {
                     planner_context.set_table_schema(Some(Arc::clone(&schema)));
                 }
 
-                match query {
-                    Some(_query) => self.inner.sql_statement_to_plan(statement),
-                    None => {
-                        let schema = self.build_schema(columns)?.to_dfschema_ref()?;
-                        let plan = EmptyRelation {
-                            produce_one_row: false,
-                            schema,
-                        };
-                        let plan = LogicalPlan::EmptyRelation(plan);
-                        let constraints = Self::new_constraint_from_table_constraints(
-                            &all_constraints,
-                            plan.schema(),
-                        )?;
-                        Ok(LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(
-                            CreateMemoryTable {
-                                name: object_name_to_table_reference(name, true)?,
-                                constraints,
-                                input: Arc::new(plan),
-                                if_not_exists,
-                                or_replace,
-                                column_defaults,
-                                temporary: false,
-                            },
-                        )))
-                    }
+                if query.is_some() {
+                    self.inner.sql_statement_to_plan(statement)
+                } else {
+                    let plan = EmptyRelation {
+                        produce_one_row: false,
+                        schema,
+                    };
+                    let plan = LogicalPlan::EmptyRelation(plan);
+                    let constraints = Self::new_constraint_from_table_constraints(
+                        &all_constraints,
+                        plan.schema(),
+                    )?;
+                    Ok(LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(
+                        CreateMemoryTable {
+                            name: object_name_to_table_reference(name, true)?,
+                            constraints,
+                            input: Arc::new(plan),
+                            if_not_exists,
+                            or_replace,
+                            column_defaults,
+                            temporary: false,
+                        },
+                    )))
                 }
             }
             _ => plan_err!("Unsupported statement: {:?}", statement),
         }
     }
 
-    /// Returns a vector of (column_name, default_expr) pairs
+    /// Returns a vector of (`column_name`, `default_expr`) pairs
     pub fn build_column_defaults(
         &self,
         columns: &Vec<SQLColumnDef>,
@@ -210,8 +207,10 @@ where
 
     pub fn convert_data_type(&self, sql_type: &SQLDataType) -> Result<DataType> {
         match sql_type {
-            SQLDataType::Array(ArrayElemTypeDef::AngleBracket(inner_sql_type))
-            | SQLDataType::Array(ArrayElemTypeDef::SquareBracket(inner_sql_type, _)) => {
+            SQLDataType::Array(
+                ArrayElemTypeDef::AngleBracket(inner_sql_type)
+                | ArrayElemTypeDef::SquareBracket(inner_sql_type, _),
+            ) => {
                 // Arrays may be multi-dimensional.
                 let inner_data_type = self.convert_data_type(inner_sql_type)?;
                 Ok(DataType::new_list(inner_data_type, true))
@@ -223,6 +222,7 @@ where
         }
     }
 
+    #[allow(clippy::too_many_lines, clippy::match_same_arms)]
     fn convert_simple_data_type(&self, sql_type: &SQLDataType) -> Result<DataType> {
         match sql_type {
             SQLDataType::Boolean | SQLDataType::Bool => Ok(DataType::Boolean),
@@ -242,8 +242,9 @@ where
                 }
             }
             SQLDataType::UnsignedBigInt(_) | SQLDataType::UnsignedInt8(_) => Ok(DataType::UInt64),
+            SQLDataType::Real |
+            SQLDataType::Float4 |
             SQLDataType::Float(_) => Ok(DataType::Float32),
-            SQLDataType::Real | SQLDataType::Float4 => Ok(DataType::Float32),
             SQLDataType::Double | SQLDataType::DoublePrecision | SQLDataType::Float8 => Ok(DataType::Float64),
             SQLDataType::Char(_)
             | SQLDataType::Text
@@ -301,10 +302,7 @@ where
                     .enumerate()
                     .map(|(idx, field)| {
                         let data_type = self.convert_data_type(&field.field_type)?;
-                        let field_name = match &field.field_name {
-                            Some(ident) => ident.clone(),
-                            None => Ident::new(format!("c{idx}"))
-                        };
+                        let field_name = field.field_name.as_ref().map_or_else(|| Ident::new(format!("c{idx}")), std::clone::Clone::clone);
                         Ok(Arc::new(Field::new(
                             self.ident_normalizer.normalize(field_name),
                             data_type,
@@ -333,15 +331,18 @@ where
                         let (precision, scale) = match b.len() {
                             0 => (None, None),
                             1 => {
-                                let precision = b[0].parse().expect("Invalid precision");
+                                let precision = b[0].parse()
+                                    .map_err(|_| DataFusionError::Plan(format!("Invalid precision: {}", b[0])))?;
                                 (Some(precision), None)
                             }
                             2 => {
-                                let precision = b[0].parse().expect("Invalid precision");
-                                let scale = b[1].parse().expect("Invalid scale");
+                                let precision = b[0].parse()
+                                    .map_err(|_| DataFusionError::Plan(format!("Invalid precision: {}", b[0])))?;
+                                let scale = b[1].parse()
+                                    .map_err(|_| DataFusionError::Plan(format!("Invalid scale: {}", b[1])))?;
                                 (Some(precision), Some(scale))
                             }
-                            _ => panic!("Invalid NUMBER type format"),
+                            _ => return Err(DataFusionError::Plan(format!("Invalid NUMBER type format: {b:?}"))),
                         };
                         make_decimal_type(precision, scale)
                     }
@@ -409,8 +410,7 @@ where
         match sql_type {
             SQLDataType::JSON => {
                 *field = field.clone().with_metadata(
-                    [("type".to_string(), "JSON".to_string())]
-                        .iter()
+                    std::iter::once(&("type".to_string(), "JSON".to_string()))
                         .cloned()
                         .collect(),
                 );
@@ -418,8 +418,7 @@ where
             SQLDataType::Custom(a, _b) => {
                 if a.to_string().to_uppercase() == "VARIANT" {
                     *field = field.clone().with_metadata(
-                        [("type".to_string(), "VARIANT".to_string())]
-                            .iter()
+                        std::iter::once(&("type".to_string(), "VARIANT".to_string()))
                             .cloned()
                             .collect(),
                     );
@@ -446,10 +445,9 @@ where
                                 .iter()
                                 .position(|item| *item.to_lowercase() == u.value.to_lowercase())
                                 .ok_or_else(|| {
-                                    let name = name
-                                        .as_ref()
-                                        .map(|name| format!("with name '{name}' "))
-                                        .unwrap_or("".to_string());
+                                    let name = name.as_ref().map_or(String::new(), |name| {
+                                        format!("with name '{name}' ")
+                                    });
                                     DataFusionError::Execution(format!(
                                         "Column for unique constraint {}not found in schema: {}",
                                         name, u.value
@@ -486,10 +484,7 @@ where
                 TableConstraint::Check { .. } => {
                     _plan_err!("Check constraints are not currently supported")
                 }
-                TableConstraint::Index { .. } => {
-                    _plan_err!("Indexes are not currently supported")
-                }
-                TableConstraint::FulltextOrSpatial { .. } => {
+                TableConstraint::FulltextOrSpatial { .. } | TableConstraint::Index { .. } => {
                     _plan_err!("Indexes are not currently supported")
                 }
             })
@@ -498,7 +493,7 @@ where
     }
 
     fn show_variable_to_plan(&self, variable: &[Ident]) -> Result<LogicalPlan> {
-        println!("SHOW variable: {:?}", variable);
+        //println!("SHOW variable: {:?}", variable);
         if !self.has_table("information_schema", "df_settings") {
             return plan_err!(
                 "SHOW [VARIABLE] is not supported unless information_schema is enabled"
@@ -507,25 +502,26 @@ where
 
         let verbose = variable
             .last()
-            .map(|s| ident_to_string(s) == "verbose")
-            .unwrap_or(false);
+            .is_some_and(|s| ident_to_string(s) == "verbose");
         let mut variable_vec = variable.to_vec();
         let mut columns: String = "name, value".to_owned();
 
+        // TODO: Fix how columns are selected. Vec instead of string
+        #[allow(unused_assignments)]
         if verbose {
             columns = format!("{columns}, description");
             variable_vec = variable_vec.split_at(variable_vec.len() - 1).0.to_vec();
         }
 
         let query = if variable_vec.iter().any(|ident| ident.value == "objects") {
-            columns = vec![
+            columns = [
                 "table_catalog as 'database_name'",
                 "table_schema as 'schema_name'",
                 "table_name as 'name'",
                 "case when table_type='BASE TABLE' then 'TABLE' else table_type end as 'kind'",
                 "null as 'comment'",
             ]
-                .join(", ");
+            .join(", ");
             format!("SELECT {columns} FROM information_schema.tables")
         } else {
             let variable = object_name_to_string(&ObjectName(variable_vec));
@@ -552,14 +548,23 @@ where
                     format!("{base_query} WHERE name = '{variable}'")
                 } else {
                     // skip where clause to return empty result
-                    format!("{base_query}")
+                    base_query.to_string()
                 }
             };
             query_res
         };
 
-        let statement = DFParser::parse_sql(&query.as_str())?.pop_front().unwrap();
-        self.statement_to_plan(statement)
+        let mut statements = DFParser::parse_sql(query.as_str())?;
+        statements.pop_front().map_or_else(
+            || plan_err!("Failed to parse SQL statement"),
+            |statement| {
+                if let DFStatement::Statement(s) = statement {
+                    self.sql_statement_to_plan(*s)
+                } else {
+                    plan_err!("Failed to parse SQL statement")
+                }
+            },
+        )
     }
 
     fn has_table(&self, schema: &str, table: &str) -> bool {
@@ -609,7 +614,7 @@ fn calc_inline_constraints_from_columns(columns: &[ColumnDef]) -> Vec<TableConst
                     name: name.clone(),
                     columns: vec![],
                     foreign_table: foreign_table.clone(),
-                    referred_columns: referred_columns.to_vec(),
+                    referred_columns: referred_columns.clone(),
                     on_delete: *on_delete,
                     on_update: *on_update,
                     characteristics: *characteristics,
@@ -637,6 +642,7 @@ fn calc_inline_constraints_from_columns(columns: &[ColumnDef]) -> Vec<TableConst
     constraints
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::as_conversions)]
 pub fn make_decimal_type(precision: Option<u64>, scale: Option<u64>) -> Result<DataType> {
     // postgres like behavior
     let (precision, scale) = match (precision, scale) {
@@ -671,6 +677,7 @@ fn object_name_to_string(object_name: &ObjectName) -> String {
 }
 
 // Normalize an owned identifier to a lowercase string unless the identifier is quoted.
+#[must_use]
 pub fn normalize_ident(id: Ident) -> String {
     match id.quote_style {
         Some(_) => id.value,
