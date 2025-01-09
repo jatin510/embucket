@@ -30,11 +30,15 @@ use datafusion::logical_expr::sqlparser::ast;
 use datafusion::logical_expr::sqlparser::ast::{
     ArrayElemTypeDef, ColumnDef, ExactNumberInfo, Ident, ObjectName, TableConstraint,
 };
-use datafusion::logical_expr::{CreateMemoryTable, DdlStatement, EmptyRelation, LogicalPlan};
+use datafusion::logical_expr::{
+    CreateMemoryTable, DdlStatement, EmptyRelation,
+    LogicalPlan,
+};
 use datafusion::prelude::*;
 use datafusion::sql::parser::{DFParser, Statement as DFStatement};
 use datafusion::sql::planner::{
-    object_name_to_table_reference, ContextProvider, IdentNormalizer, PlannerContext, SqlToRel,
+    object_name_to_table_reference, ContextProvider, IdentNormalizer, PlannerContext, SqlToRel
+    ,
 };
 use datafusion::sql::sqlparser::ast::{
     ColumnDef as SQLColumnDef, ColumnOption, CreateTable as CreateTableStatement,
@@ -48,7 +52,7 @@ where
 {
     inner: SqlToRel<'a, S>, // The wrapped type
     provider: &'a S,
-    normalizer: IdentNormalizer,
+    ident_normalizer: IdentNormalizer,
 }
 
 impl<'a, S> ExtendedSqlToRel<'a, S>
@@ -60,7 +64,14 @@ where
         Self {
             inner: SqlToRel::new(provider),
             provider,
-            normalizer: Default::default(),
+            ident_normalizer: Default::default(),
+        }
+    }
+
+    pub fn statement_to_plan(&self, statement: DFStatement) -> Result<LogicalPlan> {
+        match statement {
+            DFStatement::Statement(s) => self.sql_statement_to_plan(*s),
+            _ => self.inner.statement_to_plan(statement),
         }
     }
 
@@ -166,8 +177,10 @@ where
                     .inner
                     .sql_to_expr(default_sql_expr.clone(), &empty_schema, planner_context)
                     .map_err(error_desc)?;
-                column_defaults
-                    .push((self.normalizer.normalize(column.name.clone()), default_expr));
+                column_defaults.push((
+                    self.ident_normalizer.normalize(column.name.clone()),
+                    default_expr,
+                ));
             }
         }
         Ok(column_defaults)
@@ -183,7 +196,7 @@ where
                 .iter()
                 .any(|x| x.option == ColumnOption::NotNull);
             let mut field = Field::new(
-                self.normalizer.normalize(column.name),
+                self.ident_normalizer.normalize(column.name),
                 data_type,
                 !not_nullable,
             );
@@ -293,7 +306,7 @@ where
                             None => Ident::new(format!("c{idx}"))
                         };
                         Ok(Arc::new(Field::new(
-                            self.normalizer.normalize(field_name),
+                            self.ident_normalizer.normalize(field_name),
                             data_type,
                             true,
                         )))
@@ -355,9 +368,6 @@ where
             | SQLDataType::CharVarying(_)
             | SQLDataType::CharacterLargeObject(_)
             | SQLDataType::CharLargeObject(_)
-            // precision is not supported
-            | SQLDataType::Timestamp(Some(_), _)
-            // precision is not supported
             | SQLDataType::Time(Some(_), _)
             | SQLDataType::Dec(_)
             | SQLDataType::BigNumeric(_)
@@ -549,12 +559,7 @@ where
         };
 
         let statement = DFParser::parse_sql(&query.as_str())?.pop_front().unwrap();
-
-        if let DFStatement::Statement(s) = statement {
-            self.sql_statement_to_plan(*s)
-        } else {
-            plan_err!("Failed to parse SQL statement")
-        }
+        self.statement_to_plan(statement)
     }
 
     fn has_table(&self, schema: &str, table: &str) -> bool {

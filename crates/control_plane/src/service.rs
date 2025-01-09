@@ -11,8 +11,10 @@ use async_trait::async_trait;
 use base64::Engine;
 use bytes::Bytes;
 use datafusion::execution::context::SessionContext;
+use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::{CsvReadOptions, SessionConfig};
 use datafusion_iceberg::catalog::catalog::IcebergCatalog;
+use datafusion_iceberg::planner::IcebergQueryPlanner;
 use iceberg_rest_catalog::apis::configuration::Configuration;
 use iceberg_rest_catalog::catalog::RestCatalog;
 use icelake::TableIdentifier;
@@ -207,8 +209,13 @@ impl ControlService for ControlServiceImpl {
             storage_profile.get_object_store_builder(),
         );
         let catalog = IcebergCatalog::new(Arc::new(rest_client), None).await?;
-        let ctx =
-            SessionContext::new_with_config(SessionConfig::new().with_information_schema(true));
+        let state = SessionStateBuilder::new()
+            .with_config(SessionConfig::new().with_information_schema(true))
+            .with_default_features()
+            .with_query_planner(Arc::new(IcebergQueryPlanner {}))
+            .build();
+        let ctx = SessionContext::new_with_state(state);
+
         let catalog_name = warehouse.name.clone();
         ctx.register_catalog(catalog_name.clone(), Arc::new(catalog));
 
@@ -224,7 +231,7 @@ impl ControlService for ControlServiceImpl {
         }
 
         let records: Vec<RecordBatch> = SqlExecutor::new(ctx)
-            .query(query, &catalog_name.clone().to_string())
+            .query(query, &warehouse)
             .await?
             .into_iter()
             .collect::<Vec<_>>();
@@ -376,20 +383,30 @@ impl ControlService for ControlServiceImpl {
         //     config,
         //     storage_profile.get_object_store_builder(),
         // );
-        // let catalog = IcebergCatalog::new(Arc::new(rest_client), None)
-        //     .await
-        //     .unwrap();
-        //
+        // let catalog = IcebergCatalog::new(Arc::new(rest_client), None).await?;
         // let ctx = SessionContext::new();
-        // ctx.register_catalog("catalog", Arc::new(catalog));
+        // let catalog_name = warehouse.name.clone();
+        // ctx.register_catalog(catalog_name.clone(), Arc::new(catalog));
         //
-        // let provider = ctx.catalog("catalog").unwrap();
+        // // register a local file system object store for /tmp directory
+        // // create partitioned input file and context
+        // let local = Arc::new(LocalFileSystem::new_with_prefix("").unwrap());
+        // let local_url = Url::parse("file://").unwrap();
+        // ctx.register_object_store(&local_url, local);
         //
-        // let tables = provider.schema(database_name).unwrap().table_names();
-        // println!("{tables:?}");
-        // let input = ctx.read_batches(data).unwrap();
-        // input.write_table(format!("catalog.`{database_name}`.`{table_name}`").as_str(),
-        //                   DataFrameWriteOptions::default()).await.unwrap();
+        // let provider = ctx.catalog(catalog_name.clone().as_str()).unwrap();
+        // let table = provider.schema(database_name).unwrap().table(table_name).await?;
+        // let table_schema = table.unwrap().schema();
+        // let df = ctx
+        //     .read_csv(path_string.clone(), CsvReadOptions::new().schema(&*table_schema))
+        //     .await?;
+        // let data = df.collect().await?;
+
+        //
+        // let input = ctx.read_batches(data)?;
+        // input.write_table(format!("{catalog_name}.{database_name}.{table_name}").as_str(),
+        //                   DataFrameWriteOptions::default()).await?;
+        // Ok(())
 
         //////////////////////////////////////
 
