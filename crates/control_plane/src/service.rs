@@ -2,8 +2,7 @@ use crate::error::{ControlPlaneError, ControlPlaneResult};
 use crate::models::{ColumnInfo, Credentials, StorageProfile, StorageProfileCreateRequest};
 use crate::models::{Warehouse, WarehouseCreateRequest};
 use crate::repository::{StorageProfileRepository, WarehouseRepository};
-use crate::sql::execution::SqlExecutor;
-use crate::sql::functions::common::convert_record_batches;
+use crate::utils::convert_record_batches;
 use arrow::record_batch::RecordBatch;
 use arrow_json::writer::JsonArray;
 use arrow_json::WriterBuilder;
@@ -19,6 +18,7 @@ use iceberg_rest_catalog::catalog::RestCatalog;
 use icelake::TableIdentifier;
 use object_store::path::Path;
 use object_store::{ObjectStore, PutPayload};
+use runtime::datafusion::execution::SqlExecutor;
 use rusoto_core::{HttpClient, Region};
 use rusoto_credential::StaticProvider;
 use rusoto_s3::{GetBucketAclRequest, S3Client, S3};
@@ -243,7 +243,7 @@ impl ControlService for ControlServiceImpl {
         let executor = SqlExecutor::new(ctx).context(crate::error::ExecutionSnafu)?;
 
         let records: Vec<RecordBatch> = executor
-            .query(query, &warehouse)
+            .query(query, &catalog_name, &warehouse.location)
             .await
             .context(crate::error::ExecutionSnafu)?
             .into_iter()
