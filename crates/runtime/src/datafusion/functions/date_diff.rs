@@ -1,18 +1,16 @@
 use arrow::array::Array;
 use arrow::compute::{date_part, DatePart};
-use arrow::datatypes::DataType::Int64;
 use arrow::datatypes::DataType;
+use arrow::datatypes::DataType::Int64;
 use datafusion::common::{plan_err, Result};
 use datafusion::logical_expr::TypeSignature::Coercible;
 use datafusion::logical_expr::TypeSignatureClass;
-use datafusion::logical_expr::{
-    ColumnarValue, ScalarUDFImpl, Signature, Volatility,
-};
+use datafusion::logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, Volatility};
 use datafusion::scalar::ScalarValue;
 use datafusion_common::{internal_err, types::logical_string};
 use std::any::Any;
-use std::vec;
 use std::sync::Arc;
+use std::vec;
 
 #[derive(Debug)]
 pub struct DateDiffFunc {
@@ -60,7 +58,11 @@ impl DateDiffFunc {
             ],
         }
     }
-    fn date_diff_func(date_or_time_expr1: &Arc<dyn Array>, date_or_time_expr2: &Arc<dyn Array>, unit_type: DatePart) -> Result<ColumnarValue> {
+    fn date_diff_func(
+        date_or_time_expr1: &Arc<dyn Array>,
+        date_or_time_expr2: &Arc<dyn Array>,
+        unit_type: DatePart,
+    ) -> Result<ColumnarValue> {
         let unit2 = date_part(date_or_time_expr2, unit_type)?;
         let unit1 = date_part(date_or_time_expr1, unit_type)?;
         Ok(ColumnarValue::Scalar(
@@ -159,14 +161,22 @@ impl ScalarUDFImpl for DateDiffFunc {
             "second" | "s" | "sec" | "seconds" | "secs" => {
                 Self::date_diff_func(&date_or_time_expr1, &date_or_time_expr2, DatePart::Second)
             }
-            "millisecond" | "ms" | "msec" | "milliseconds" => {
-                Self::date_diff_func(&date_or_time_expr1, &date_or_time_expr2, DatePart::Millisecond)
-            }
-            "microsecond" | "us" | "usec" | "microseconds" => {
-                Self::date_diff_func(&date_or_time_expr1, &date_or_time_expr2, DatePart::Microsecond)
-            }
+            "millisecond" | "ms" | "msec" | "milliseconds" => Self::date_diff_func(
+                &date_or_time_expr1,
+                &date_or_time_expr2,
+                DatePart::Millisecond,
+            ),
+            "microsecond" | "us" | "usec" | "microseconds" => Self::date_diff_func(
+                &date_or_time_expr1,
+                &date_or_time_expr2,
+                DatePart::Microsecond,
+            ),
             "nanosecond" | "ns" | "nsec" | "nanosec" | "nsecond" | "nanoseconds" | "nanosecs" => {
-                Self::date_diff_func(&date_or_time_expr1, &date_or_time_expr2, DatePart::Nanosecond)
+                Self::date_diff_func(
+                    &date_or_time_expr1,
+                    &date_or_time_expr2,
+                    DatePart::Nanosecond,
+                )
             }
             _ => plan_err!("Invalid date_or_time_part type")?,
         }

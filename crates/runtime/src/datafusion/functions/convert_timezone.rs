@@ -130,6 +130,7 @@ impl ScalarUDFImpl for ConvertTimezoneFunc {
     //should use local session time
     //TODO: select convert_timezone('America/New_York, 'UTC', v3) with v3 a timestamp with value = '2025-01-06 08:00:00 America/New_York',
     //should be parsed as the timezone None variant timestamp
+    #[allow(clippy::too_many_lines)]
     fn invoke(&self, args: &[ColumnarValue]) -> Result<ColumnarValue> {
         match args.len() {
             2 => {

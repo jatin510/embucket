@@ -28,7 +28,12 @@ use iceberg_rust::spec::namespace::Namespace;
 use iceberg_rust::spec::schema::Schema;
 use iceberg_rust::spec::types::StructType;
 use snafu::ResultExt;
-use sqlparser::ast::{MergeAction, MergeClauseKind, MergeInsertKind, Query as AstQuery};
+use sqlparser::ast::helpers::attached_token::AttachedToken;
+use sqlparser::ast::{
+    BinaryOperator, GroupByExpr, MergeAction, MergeClauseKind, MergeInsertKind, Query as AstQuery,
+    Select, SelectItem,
+};
+use sqlparser::tokenizer::Span;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -77,10 +82,16 @@ impl SqlExecutor {
                 | Statement::StartTransaction { .. }
                 | Statement::Commit { .. }
                 | Statement::Insert { .. }
-                | Statement::Query { .. }
                 | Statement::ShowSchemas { .. }
                 | Statement::ShowVariable { .. } => {
                     return Box::pin(self.execute_with_custom_plan(&query, warehouse_name)).await;
+                }
+                Statement::Query(mut subquery) => {
+                    self.update_qualify_in_query(subquery.as_mut());
+                    return Box::pin(
+                        self.execute_with_custom_plan(&subquery.to_string(), warehouse_name),
+                    )
+                    .await;
                 }
                 Statement::Drop { .. } => {
                     return Box::pin(self.drop_table_query(&query, warehouse_name)).await;
@@ -110,8 +121,9 @@ impl SqlExecutor {
     pub fn preprocess_query(&self, query: &str) -> String {
         // Replace field[0].subfield -> json_get(json_get(field, 0), 'subfield')
         // TODO: This regex should be a static allocation
-        let re = regex::Regex::new(r"(\w+)\[(\d+)][:\.](\w+)").unwrap();
-        let date_add = regex::Regex::new(r"(date|time|timestamp)(_?add|_?diff)\(\s*([a-zA-Z]+),").unwrap();
+        let re = regex::Regex::new(r"(\w+.\w+)\[(\d+)][:\.](\w+)").unwrap();
+        let date_add =
+            regex::Regex::new(r"(date|time|timestamp)(_?add|_?diff)\(\s*([a-zA-Z]+),").unwrap();
 
         let query = re
             .replace_all(query, "json_get(json_get($1, $2), '$3')")
@@ -150,13 +162,19 @@ impl SqlExecutor {
 
             // Replace the name of table that needs creation (for ex. "warehouse"."database"."table" -> "table")
             // And run the query - this will create an InMemory table
-            let modified_statement = CreateTableStatement {
+            let mut modified_statement = CreateTableStatement {
                 name: ObjectName(vec![new_table_name.clone()]),
                 transient: false,
                 ..create_table_statement
             };
+
+            // Replace qualify with nested select
+            if let Some(ref mut query) = modified_statement.query {
+                self.update_qualify_in_query(query);
+            }
             // Create InMemory table since external tables with "AS SELECT" are not supported
             let updated_query = modified_statement.to_string();
+
             let plan = self
                 .get_custom_logical_plan(&updated_query, warehouse_name)
                 .await?;
@@ -481,7 +499,7 @@ impl SqlExecutor {
                     }
                 }
             }
-            // println!("Tables: {:?}", ctx_provider.tables.keys());
+
             let planner = ExtendedSqlToRel::new(&ctx_provider);
             planner
                 .sql_statement_to_plan(*s)
@@ -507,6 +525,97 @@ impl SqlExecutor {
             .collect()
             .await
             .context(super::error::DataFusionSnafu)
+    }
+
+    #[allow(clippy::only_used_in_recursion)]
+    fn update_qualify_in_query(&self, query: &mut Query) {
+        if let Some(with) = query.with.as_mut() {
+            for cte in &mut with.cte_tables {
+                self.update_qualify_in_query(&mut cte.query);
+            }
+        }
+
+        match query.body.as_mut() {
+            sqlparser::ast::SetExpr::Select(select) => {
+                if let Some(Expr::BinaryOp { left, op, right }) = select.qualify.as_ref() {
+                    if matches!(
+                        op,
+                        BinaryOperator::Eq | BinaryOperator::Lt | BinaryOperator::LtEq
+                    ) {
+                        let mut inner_select = select.clone();
+                        inner_select.qualify = None;
+                        inner_select.projection.push(SelectItem::ExprWithAlias {
+                            expr: *(left.clone()),
+                            alias: Ident {
+                                value: "qualify_alias".to_string(),
+                                quote_style: None,
+                                span: Span::empty(),
+                            },
+                        });
+                        let subquery = Query {
+                            with: None,
+                            body: Box::new(sqlparser::ast::SetExpr::Select(inner_select)),
+                            order_by: None,
+                            limit: None,
+                            limit_by: vec![],
+                            offset: None,
+                            fetch: None,
+                            locks: vec![],
+                            for_clause: None,
+                            settings: None,
+                            format_clause: None,
+                        };
+                        let outer_select = Select {
+                            select_token: AttachedToken::empty(),
+                            distinct: None,
+                            top: None,
+                            top_before_distinct: false,
+                            projection: vec![SelectItem::UnnamedExpr(Expr::Identifier(Ident {
+                                value: "*".to_string(),
+                                quote_style: None,
+                                span: Span::empty(),
+                            }))],
+                            into: None,
+                            from: vec![TableWithJoins {
+                                relation: TableFactor::Derived {
+                                    lateral: false,
+                                    subquery: Box::new(subquery),
+                                    alias: None,
+                                },
+                                joins: vec![],
+                            }],
+                            lateral_views: vec![],
+                            prewhere: None,
+                            selection: Some(Expr::BinaryOp {
+                                left: Box::new(Expr::Identifier(Ident {
+                                    value: "qualify_alias".to_string(),
+                                    quote_style: None,
+                                    span: Span::empty(),
+                                })),
+                                op: op.clone(),
+                                right: Box::new(*right.clone()),
+                            }),
+                            group_by: GroupByExpr::Expressions(vec![], vec![]),
+                            cluster_by: vec![],
+                            distribute_by: vec![],
+                            sort_by: vec![],
+                            having: None,
+                            named_window: vec![],
+                            qualify: None,
+                            window_before_qualify: false,
+                            value_table_mode: None,
+                            connect_by: None,
+                        };
+
+                        *query.body = sqlparser::ast::SetExpr::Select(Box::new(outer_select));
+                    }
+                }
+            }
+            sqlparser::ast::SetExpr::Query(q) => {
+                self.update_qualify_in_query(q);
+            }
+            _ => {}
+        }
     }
 
     #[allow(clippy::only_used_in_recursion)]
