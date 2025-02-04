@@ -1,7 +1,6 @@
 use arrow::array::RecordBatch;
 use arrow::datatypes::{DataType, Field};
 use chrono::{NaiveDateTime, Utc};
-use dotenv::dotenv;
 use iceberg_rust::object_store::ObjectStoreBuilder;
 use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
@@ -175,8 +174,6 @@ impl StorageProfile {
     ///
     /// This function will return an error if the cloud platform isn't supported.
     pub fn get_base_url(&self) -> ControlPlaneModelResult<String> {
-        // Doing this for every call is not efficient
-        dotenv().ok();
         let use_file_system_instead_of_cloud = env::var("USE_FILE_SYSTEM_INSTEAD_OF_CLOUD")
             .unwrap_or_else(|_| "true".to_string())
             .parse::<bool>()
@@ -221,8 +218,6 @@ impl StorageProfile {
 
     // This is needed to initialize the catalog used in JanKaul code
     pub fn get_object_store_builder(&self) -> ControlPlaneModelResult<ObjectStoreBuilder> {
-        // TODO remove duplicated code
-        dotenv().ok();
         let use_file_system_instead_of_cloud = env::var("USE_FILE_SYSTEM_INSTEAD_OF_CLOUD")
             .context(error::MissingEnvironmentVariableSnafu {
                 var: "USE_FILE_SYSTEM_INSTEAD_OF_CLOUD".to_string(),
@@ -274,8 +269,6 @@ impl StorageProfile {
     }
 
     pub fn get_object_store(&self) -> ControlPlaneModelResult<Box<dyn ObjectStore>> {
-        // TODO remove duplicated code
-        dotenv().ok();
         let use_file_system_instead_of_cloud = env::var("USE_FILE_SYSTEM_INSTEAD_OF_CLOUD")
             .context(error::MissingEnvironmentVariableSnafu {
                 var: "USE_FILE_SYSTEM_INSTEAD_OF_CLOUD".to_string(),
