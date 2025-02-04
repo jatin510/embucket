@@ -252,6 +252,16 @@ impl ControlService for ControlServiceImpl {
                 executor
                     .ctx
                     .register_catalog(warehouse.name.clone(), Arc::new(catalog));
+
+                let object_store = storage_profile
+                    .get_object_store()
+                    .context(crate::error::InvalidStorageProfileSnafu)?;
+                let endpoint_url = storage_profile
+                    .get_object_store_endpoint_url()
+                    .map_err(|_| ControlPlaneError::MissingStorageEndpointURL)?;
+                executor
+                    .ctx
+                    .register_object_store(&endpoint_url, Arc::from(object_store));
             }
             (warehouse.name, warehouse.location)
         };
