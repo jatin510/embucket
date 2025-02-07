@@ -174,6 +174,10 @@ impl SqlExecutor {
             .replace_all(query, "json_get(json_get($1, $2), '$3')")
             .to_string();
         query = date_add.replace_all(&query, "$1$2('$3',").to_string();
+        let alter_iceberg_table = regex::Regex::new(r"alter\s+iceberg\s+table").unwrap();
+        let query = alter_iceberg_table
+            .replace_all(&query, "alter table")
+            .to_string();
         // TODO remove this check after release of https://github.com/Embucket/datafusion-sqlparser-rs/pull/8
         if query.to_lowercase().contains("alter session") {
             query = query.replace(';', "");
