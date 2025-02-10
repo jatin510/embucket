@@ -37,37 +37,37 @@ pub fn create_router() -> Router<AppState> {
         .route("/navigation", get(navigation))
         .route("/warehouses", post(create_warehouse).get(list_warehouses))
         .route(
-            "/warehouses/:warehouseId",
+            "/warehouses/{warehouseId}",
             delete(delete_warehouse).get(get_warehouse),
         )
         .route(
-            "/warehouses/:warehouseId/databases/:databaseName",
+            "/warehouses/{warehouseId}/databases/{databaseName}",
             get(get_database).delete(delete_database),
         )
-        .route("/warehouses/:warehouseId/databases", post(create_database))
+        .route("/warehouses/{warehouseId}/databases", post(create_database))
         .route(
-            "/warehouses/:warehouseId/databases/:databaseName/register",
+            "/warehouses/{warehouseId}/databases/{databaseName}/register",
             post(register_table),
         )
         .route(
-            "/warehouses/:warehouseId/databases/:databaseName/tables",
+            "/warehouses/{warehouseId}/databases/{databaseName}/tables",
             post(create_table),
         )
         .route(
-            "/warehouses/:warehouseId/databases/:databaseName/tables/:tableName",
+            "/warehouses/{warehouseId}/databases/{databaseName}/tables/{tableName}",
             get(get_table).delete(delete_table),
         )
         .route("/query", post(query))
         .route(
-            "/warehouses/:warehouseId/databases/:databaseName/tables/:tableName/settings",
+            "/warehouses/{warehouseId}/databases/{databaseName}/tables/{tableName}/settings",
             get(get_settings).post(update_table_properties),
         )
         .route(
-            "/warehouses/:warehouseId/databases/:databaseName/tables/:tableName/upload",
+            "/warehouses/{warehouseId}/databases/{databaseName}/tables/{tableName}/upload",
             post(upload_data_to_table),
         )
         .route(
-            "/warehouses/:warehouseId/databases/:databaseName/tables/:tableName/snapshots",
+            "/warehouses/{warehouseId}/databases/{databaseName}/tables/{tableName}/snapshots",
             get(get_snapshots),
         )
         .route(
@@ -75,7 +75,7 @@ pub fn create_router() -> Router<AppState> {
             post(create_storage_profile).get(list_storage_profiles),
         )
         .route(
-            "/storage-profiles/:storageProfileId",
+            "/storage-profiles/{storageProfileId}",
             delete(delete_storage_profile).get(get_storage_profile),
         )
         .layer(SetSensitiveHeadersLayer::new([

@@ -113,6 +113,9 @@ pub enum NexusError {
         source: Box<dyn std::error::Error + Send + Sync>,
         field: String,
     },
+
+    #[snafu(display("Missing Session ID"))]
+    MissingSessionId,
 }
 
 pub type NexusResult<T> = std::result::Result<T, NexusError>;
@@ -160,7 +163,8 @@ impl IntoResponse for NexusError {
 
             Self::MalformedNamespaceIdent { .. }
             | Self::MalformedMultipart { .. }
-            | Self::MalformedFileUploadRequest => StatusCode::BAD_REQUEST,
+            | Self::MalformedFileUploadRequest
+            | Self::MissingSessionId => StatusCode::BAD_REQUEST,
 
             Self::TableFetch { id: _, source }
             | Self::TableDelete { source }

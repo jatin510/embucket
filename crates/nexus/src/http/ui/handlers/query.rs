@@ -1,4 +1,5 @@
 use super::super::models::error::{self as model_error, NexusError, NexusResult};
+use crate::http::session::DFSessionId;
 use crate::http::ui::models::table::{QueryPayload, QueryResponse};
 use crate::state::AppState;
 use axum::{extract::State, Json};
@@ -38,6 +39,7 @@ pub struct ApiDoc;
 #[tracing::instrument(level = "debug", skip(state), err, ret(level = tracing::Level::TRACE))]
 // Add time sql took
 pub async fn query(
+    DFSessionId(session_id): DFSessionId,
     State(state): State<AppState>,
     Json(payload): Json<QueryPayload>,
 ) -> NexusResult<Json<QueryResponse>> {
@@ -45,7 +47,7 @@ pub async fn query(
     let start = Instant::now();
     let result = state
         .control_svc
-        .query_table(&request.query)
+        .query_table(&session_id, &request.query)
         .await
         .context(model_error::QuerySnafu)?;
     let duration = start.elapsed();

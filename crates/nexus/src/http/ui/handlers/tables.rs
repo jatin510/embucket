@@ -6,7 +6,7 @@ use crate::http::ui::models::properties::{
 use crate::http::ui::models::table::{
     Table, TableCreatePayload, TableRegisterRequest, TableUploadPayload,
 };
-use crate::http::utils::get_default_properties;
+use crate::http::{session::DFSessionId, utils::get_default_properties};
 use crate::state::AppState;
 use axum::{extract::Multipart, extract::Path, extract::State, Json};
 use catalog::models::{DatabaseIdent, TableIdent, WarehouseIdent};
@@ -368,6 +368,7 @@ pub async fn update_table_properties(
 )]
 #[tracing::instrument(level = "debug", skip(state), err, ret(level = tracing::Level::TRACE))]
 pub async fn upload_data_to_table(
+    DFSessionId(session_id): DFSessionId,
     State(state): State<AppState>,
     Path((warehouse_id, database_name, table_name)): Path<(Uuid, String, String)>,
     mut multipart: Multipart,
@@ -394,6 +395,7 @@ pub async fn upload_data_to_table(
                 state
                     .control_svc
                     .upload_data_to_table(
+                        &session_id,
                         &warehouse_id,
                         &database_name,
                         &table_name,

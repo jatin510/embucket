@@ -3,6 +3,7 @@ use crate::http::dbt::schemas::{
     JsonResponse, LoginData, LoginRequestBody, LoginRequestQuery, LoginResponse, QueryRequest,
     QueryRequestBody, ResponseData,
 };
+use crate::http::session::DFSessionId;
 use crate::state::AppState;
 use axum::body::Bytes;
 use axum::extract::{Query, State};
@@ -57,6 +58,7 @@ pub async fn login(
 
 #[tracing::instrument(level = "debug", skip(state), err, ret(level = tracing::Level::TRACE))]
 pub async fn query(
+    DFSessionId(session_id): DFSessionId,
     State(state): State<AppState>,
     Query(query): Query<QueryRequest>,
     headers: HeaderMap,
@@ -86,7 +88,7 @@ pub async fn query(
 
     let (result, columns) = state
         .control_svc
-        .query_dbt(&body_json.sql_text)
+        .query_dbt(&session_id, &body_json.sql_text)
         .await
         .context(dbt_error::ControlServiceSnafu)?;
 
