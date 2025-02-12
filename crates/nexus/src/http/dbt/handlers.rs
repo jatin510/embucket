@@ -35,7 +35,7 @@ const SERIALIZATION_FORMAT: &str = "json"; // or "arrow"
 // For more info see issue #115
 const ARROW_IPC_ALIGNMENT: usize = 8;
 
-#[tracing::instrument(level = "debug", skip(state), err, ret(level = tracing::Level::TRACE))]
+#[tracing::instrument(level = "debug", skip(state, body), err, ret(level = tracing::Level::TRACE))]
 pub async fn login(
     State(state): State<AppState>,
     Query(query): Query<LoginRequestQuery>,
@@ -105,7 +105,7 @@ fn records_to_json_string(recs: &[RecordBatch]) -> Result<String, DbtError> {
     String::from_utf8(writer.into_inner()).context(dbt_error::Utf8Snafu)
 }
 
-#[tracing::instrument(level = "debug", skip(state), err, ret(level = tracing::Level::TRACE))]
+#[tracing::instrument(level = "debug", skip(state, body), err, ret(level = tracing::Level::TRACE))]
 pub async fn query(
     DFSessionId(session_id): DFSessionId,
     State(state): State<AppState>,
