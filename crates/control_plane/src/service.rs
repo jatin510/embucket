@@ -178,34 +178,37 @@ impl ControlService for ControlServiceImpl {
 
     #[tracing::instrument(level = "trace", skip(self))]
     async fn validate_credentials(&self, profile: &StorageProfile) -> ControlPlaneResult<()> {
-        match profile.credentials.clone() {
-            Credentials::AccessKey(creds) => {
-                let profile_region = profile.region.clone();
-                let credentials = StaticProvider::new_minimal(
-                    creds.aws_access_key_id.clone(),
-                    creds.aws_secret_access_key.clone(),
-                );
-                let region = Region::Custom {
-                    name: profile_region.clone(),
-                    endpoint: profile
-                        .endpoint
-                        .clone()
-                        .unwrap_or_else(|| format!("https://s3.{profile_region}.amazonaws.com")),
-                };
+        if let Some(credentials) = profile.credentials.clone() {
+            match credentials {
+                Credentials::AccessKey(creds) => {
+                    let profile_region = profile.region.clone().unwrap_or_default();
+                    let credentials = StaticProvider::new_minimal(
+                        creds.aws_access_key_id.clone(),
+                        creds.aws_secret_access_key.clone(),
+                    );
+                    let region = Region::Custom {
+                        name: profile_region.clone(),
+                        endpoint: profile.endpoint.clone().unwrap_or_else(|| {
+                            format!("https://s3.{profile_region}.amazonaws.com")
+                        }),
+                    };
 
-                let dispatcher =
-                    HttpClient::new().context(crate::error::InvalidTLSConfigurationSnafu)?;
-                let client = S3Client::new_with(dispatcher, credentials, region);
-                let request = GetBucketAclRequest {
-                    bucket: profile.bucket.clone(),
-                    expected_bucket_owner: None,
-                };
-                client.get_bucket_acl(request).await?;
-                Ok(())
+                    let dispatcher =
+                        HttpClient::new().context(crate::error::InvalidTLSConfigurationSnafu)?;
+                    let client = S3Client::new_with(dispatcher, credentials, region);
+                    let request = GetBucketAclRequest {
+                        bucket: profile.bucket.clone().unwrap_or_default(),
+                        expected_bucket_owner: None,
+                    };
+                    client.get_bucket_acl(request).await?;
+                    Ok(())
+                }
+                Credentials::Role(_) => Err(ControlPlaneError::UnsupportedAuthenticationMethod {
+                    method: credentials.to_string(),
+                }),
             }
-            Credentials::Role(_) => Err(ControlPlaneError::UnsupportedAuthenticationMethod {
-                method: profile.credentials.to_string(),
-            }),
+        } else {
+            Err(ControlPlaneError::CredentialsValidationFailed)
         }
     }
 
@@ -409,12 +412,16 @@ impl ControlService for ControlServiceImpl {
             .get_object_store_endpoint_url()
             .map_err(|_| ControlPlaneError::MissingStorageEndpointURL)?;
 
-        let path_string = match &storage_profile.credentials {
-            Credentials::AccessKey(_) => {
-                // If the storage profile is AWS S3, modify the path_string with the S3 prefix
-                format!("{endpoint_url}/{path_string}")
+        let path_string = if let Some(creds) = &storage_profile.credentials {
+            match &creds {
+                Credentials::AccessKey(_) => {
+                    // If the storage profile is AWS S3, modify the path_string with the S3 prefix
+                    format!("{endpoint_url}/{path_string}")
+                }
+                Credentials::Role(_) => path_string,
             }
-            Credentials::Role(_) => path_string,
+        } else {
+            format!("{endpoint_url}/{path_string}")
         };
         executor
             .ctx
@@ -573,12 +580,12 @@ mod tests {
 
         let request = StorageProfileCreateRequest {
             r#type: CloudProvider::AWS,
-            region: "us-west-2".to_string(),
-            bucket: "my-bucket".to_string(),
-            credentials: Credentials::AccessKey(AwsAccessKeyCredential {
+            region: Some("us-west-2".to_string()),
+            bucket: Some("my-bucket".to_string()),
+            credentials: Some(Credentials::AccessKey(AwsAccessKeyCredential {
                 aws_access_key_id: "my-access-key".to_string(),
                 aws_secret_access_key: "my-secret-access-key".to_string(),
-            }),
+            })),
             sts_role_arn: None,
             endpoint: None,
             validate_credentials: None,
@@ -604,12 +611,12 @@ mod tests {
     fn storage_profile_req() -> StorageProfileCreateRequest {
         StorageProfileCreateRequest {
             r#type: CloudProvider::AWS,
-            region: "us-west-2".to_string(),
-            bucket: "my-bucket".to_string(),
-            credentials: Credentials::AccessKey(AwsAccessKeyCredential {
+            region: Some("us-west-2".to_string()),
+            bucket: Some("my-bucket".to_string()),
+            credentials: Some(Credentials::AccessKey(AwsAccessKeyCredential {
                 aws_access_key_id: "my-access-key".to_string(),
                 aws_secret_access_key: "my-secret-access-key".to_string(),
-            }),
+            })),
             sts_role_arn: None,
             endpoint: Some(String::from("https://s3.us-east-2.amazonaws.com/")),
             validate_credentials: None,

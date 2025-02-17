@@ -73,6 +73,9 @@ pub enum ControlPlaneError {
     #[snafu(display("Unspported Authentication method: {method}"))]
     UnsupportedAuthenticationMethod { method: String },
 
+    #[snafu(display("Invalid or missing credentials"))]
+    CredentialsValidationFailed,
+
     #[snafu(display("Invalid TLS configuration: {source}"))]
     InvalidTLSConfiguration {
         source: rusoto_core::request::TlsError,

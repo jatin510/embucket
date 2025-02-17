@@ -108,9 +108,6 @@ pub struct IceBucketOpts {
         help = "CORS Allow Origin"
     )]
     pub cors_allow_origin: Option<String>,
-
-    #[arg(long, default_value = "true")]
-    use_fs: Option<bool>,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -123,12 +120,6 @@ enum StoreBackend {
 impl IceBucketOpts {
     #[allow(clippy::unwrap_used, clippy::as_conversions)]
     pub fn object_store_backend(self) -> ObjectStoreResult<Box<dyn ObjectStore>> {
-        // TODO: Hacky workaround for now, need to figure out a better way to pass this
-        // TODO: Really, seriously remove this. This is a hack.
-        unsafe {
-            let use_fs = self.use_fs.unwrap_or(false);
-            std::env::set_var("USE_FILE_SYSTEM_INSTEAD_OF_CLOUD", use_fs.to_string());
-        }
         match self.backend {
             StoreBackend::S3 => {
                 let s3_allow_http = self.allow_http.unwrap_or(false);
