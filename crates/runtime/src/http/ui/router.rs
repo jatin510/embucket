@@ -20,6 +20,9 @@ use crate::http::ui::handlers::schemas::{
     create_schema, delete_schema, get_schema, list_schemas, update_schema,
 };
 
+use crate::http::ui::handlers::databases::{
+    create_database, delete_database, get_database, list_databases, update_database,
+};
 use crate::http::ui::handlers::query::query;
 use crate::http::ui::handlers::volumes::{
     create_volume, delete_volume, get_volume, list_volumes, update_volume,
@@ -27,9 +30,6 @@ use crate::http::ui::handlers::volumes::{
 // use crate::http::ui::handlers::tables::{
 //     create_table, delete_table, get_settings, get_snapshots, get_table, register_table,
 //     update_table_properties, upload_data_to_table,
-// };
-// use crate::http::ui::handlers::warehouses::{
-//     create_warehouse, delete_warehouse, get_warehouse, list_warehouses, navigation,
 // };
 use crate::http::state::AppState;
 use axum::extract::DefaultBodyLimit;
@@ -59,11 +59,6 @@ pub struct ApiDoc;
 pub fn create_router() -> Router<AppState> {
     Router::new()
         // .route("/navigation", get(navigation))
-        // .route("/warehouses", post(create_warehouse).get(list_warehouses))
-        // .route(
-        //     "/warehouses/{warehouseId}",
-        //     delete(delete_warehouse).get(get_warehouse),
-        // )
         .route(
             "/databases/{databaseName}/schemas/{schemaName}",
             delete(delete_schema).get(get_schema).put(update_schema),
@@ -71,6 +66,13 @@ pub fn create_router() -> Router<AppState> {
         .route(
             "/databases/{databaseName}/schemas",
             post(create_schema).get(list_schemas),
+        )
+        .route("/databases", post(create_database).get(list_databases))
+        .route(
+            "/databases/{databaseName}",
+            delete(delete_database)
+                .get(get_database)
+                .put(update_database),
         )
         // .route(
         //     "/warehouses/{warehouseId}/databases/{databaseName}/register",
