@@ -196,7 +196,7 @@ impl IceBucketVolume {
                     .map(|s3| Arc::new(s3) as Arc<dyn ObjectStore>)
                     .context(metastore_error::ObjectStoreSnafu)
             }
-            IceBucketVolumeType::File(volume) => {
+            IceBucketVolumeType::File(_) => {
                 Ok(Arc::new(object_store::local::LocalFileSystem::new()) as Arc<dyn ObjectStore>)
             }
             IceBucketVolumeType::Memory => {
