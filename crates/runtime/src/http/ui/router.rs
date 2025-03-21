@@ -35,6 +35,7 @@ use crate::http::ui::handlers::worksheets::{
 //     update_table_properties, upload_data_to_table,
 // };
 use crate::http::state::AppState;
+use crate::http::ui::handlers::databases_navigation::get_databases_navigation;
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, post};
 use axum::Router;
@@ -64,6 +65,7 @@ pub struct ApiDoc;
 pub fn create_router() -> Router<AppState> {
     Router::new()
         // .route("/navigation", get(navigation))
+        .route("/databases-navigation", get(get_databases_navigation))
         .route(
             "/databases/{databaseName}/schemas/{schemaName}",
             delete(delete_schema).get(get_schema).put(update_schema),

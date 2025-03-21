@@ -32,6 +32,7 @@ use crate::http::ui::handlers::worksheets::ApiDoc as WorksheetsApiDoc;
 // use crate::http::ui::handlers::tables::ApiDoc as TableApiDoc;
 use crate::http::state::AppState;
 use crate::http::ui::handlers::databases::ApiDoc as DatabasesApiDoc;
+use crate::http::ui::handlers::databases_navigation::ApiDoc as DatabasesNavigationApiDoc;
 use crate::http::ui::router::{create_router as create_ui_router, ApiDoc as UiApiDoc};
 use tower_http::timeout::TimeoutLayer;
 
@@ -60,8 +61,9 @@ pub fn create_app(state: AppState) -> Router {
         .merge_from(DatabasesApiDoc::openapi())
         // .merge_from(TableApiDoc::openapi())
         .merge_from(SchemasApiDoc::openapi())
-        .merge_from(WorksheetsApiDoc::openapi())
-        .merge_from(QueryApiDoc::openapi());
+        .merge_from(QueryApiDoc::openapi())
+        .merge_from(DatabasesNavigationApiDoc::openapi())
+        .merge_from(WorksheetsApiDoc::openapi());
     if let Some(extra_spec) = load_openapi_spec() {
         ui_spec = ui_spec.merge_from(extra_spec);
     }
