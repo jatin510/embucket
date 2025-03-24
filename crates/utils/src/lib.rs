@@ -210,7 +210,7 @@ impl Db {
         while let Ok(Some(item)) = iter.next().await {
             let item = de::from_slice(&item.value).context(DeserializeValueSnafu)?;
             items.push(item);
-            if items.len() >= limit.unwrap_or(u16::MAX).into() {
+            if items.len() >= usize::from(limit.unwrap_or(u16::MAX)) {
                 break;
             }
         }
@@ -328,7 +328,7 @@ mod test {
         type Cursor = i64;
 
         fn cursor(&self) -> Self::Cursor {
-            self.start_time.timestamp_nanos_opt().unwrap_or(0)
+            self.start_time.timestamp_millis()
         }
 
         fn key(&self) -> Bytes {
@@ -353,7 +353,7 @@ mod test {
         type Cursor = i64;
 
         fn cursor(&self) -> Self::Cursor {
-            self.start_time.timestamp_nanos_opt().unwrap_or(0)
+            self.start_time.timestamp_millis()
         }
 
         fn key(&self) -> Bytes {

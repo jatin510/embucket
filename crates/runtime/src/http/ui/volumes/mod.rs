@@ -15,16 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-pub mod error;
+pub mod errors;
 pub mod handlers;
 pub mod models;
-pub mod router;
-
-pub mod databases;
-pub mod queries;
-pub mod schemas;
-pub mod volumes;
-pub mod worksheets;
-
-#[cfg(test)]
-pub mod tests;

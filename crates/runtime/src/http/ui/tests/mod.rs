@@ -15,15 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use icebucket_history::{QueryHistoryId, QueryHistoryItem};
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, utoipa::IntoParams)]
-#[serde(rename_all = "camelCase")]
-pub struct HistoryResponse {
-    pub items: Vec<QueryHistoryItem>,
-    pub duration_seconds: f32,
-    pub current_cursor: Option<QueryHistoryId>,
-    pub next_cursor: QueryHistoryId,
-}
+pub mod common;
+pub mod databases;
+pub mod queries;
+pub mod volumes;
+pub mod worksheets;

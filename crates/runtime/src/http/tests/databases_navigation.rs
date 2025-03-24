@@ -17,11 +17,14 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use crate::http::tests::common::req;
-use crate::http::tests::common::{ui_test_op, Entity, Op};
-use crate::http::ui::handlers::query::QueryPayload;
+use crate::http::ui::databases::models::DatabasePayload;
 use crate::http::ui::models::databases_navigation::NavigationDatabase;
-use crate::http::ui::models::worksheet::{WorksheetPayload, WorksheetResponse};
+use crate::http::ui::queries::models::QueryPayload;
+use crate::http::ui::schemas::models::SchemaPayload;
+use crate::http::ui::tests::common::req;
+use crate::http::ui::tests::common::{ui_test_op, Entity, Op};
+use crate::http::ui::volumes::models::{VolumePayload, VolumeResponse};
+use crate::http::ui::worksheets::models::{WorksheetPayload, WorksheetResponse};
 use crate::tests::run_icebucket_test_server;
 use http::Method;
 use icebucket_metastore::{IceBucketDatabase, IceBucketVolume};
@@ -45,24 +48,30 @@ async fn test_ui_databases_navigation() {
         addr,
         Op::Create,
         None,
-        &Entity::Volume(IceBucketVolume {
-            ident: String::new(),
-            volume: IceBucketVolumeType::Memory,
+        &Entity::Volume(VolumePayload {
+            data: IceBucketVolume {
+                ident: String::new(),
+                volume: IceBucketVolumeType::Memory,
+            },
         }),
     )
     .await;
-    let volume = res.json::<IceBucketVolume>().await.unwrap();
+    let volume = res.json::<VolumeResponse>().await.unwrap();
 
     // Create database, Ok
-    let expected1 = IceBucketDatabase {
-        ident: "test1".to_string(),
-        properties: None,
-        volume: volume.ident.clone(),
+    let expected1 = DatabasePayload {
+        data: IceBucketDatabase {
+            ident: "test1".to_string(),
+            properties: None,
+            volume: volume.data.ident.clone(),
+        },
     };
-    let expected2 = IceBucketDatabase {
-        ident: "test2".to_string(),
-        properties: None,
-        volume: volume.ident.clone(),
+    let expected2 = DatabasePayload {
+        data: IceBucketDatabase {
+            ident: "test2".to_string(),
+            properties: None,
+            volume: volume.data.ident.clone(),
+        },
     };
     //2 DBs
     let _res = ui_test_op(addr, Op::Create, None, &Entity::Database(expected1.clone())).await;
@@ -76,12 +85,14 @@ async fn test_ui_databases_navigation() {
     assert_eq!(2, databases_navigation.len());
 
     // Create schema, Ok
-    let expected1 = IceBucketSchema {
-        ident: IceBucketSchemaIdent {
-            schema: "testing1".to_string(),
-            database: expected1.ident.clone(),
+    let expected1 = SchemaPayload {
+        data: IceBucketSchema {
+            ident: IceBucketSchemaIdent {
+                schema: "testing1".to_string(),
+                database: expected1.data.ident.clone(),
+            },
+            properties: None,
         },
-        properties: None,
     };
     //1 SCHEMA
     let _res = ui_test_op(addr, Op::Create, None, &Entity::Schema(expected1.clone())).await;
@@ -108,7 +119,7 @@ async fn test_ui_databases_navigation() {
     .await
     .unwrap();
     assert_eq!(http::StatusCode::OK, res.status());
-    let worksheet = res.json::<WorksheetResponse>().await.unwrap().data.unwrap();
+    let worksheet = res.json::<WorksheetResponse>().await.unwrap().data;
 
     let query_payload = QueryPayload::new(format!(
         "create or replace Iceberg TABLE {}.{}.{}
@@ -123,8 +134,8 @@ async fn test_ui_databases_navigation() {
 	    DVCE_CREATED_TSTAMP TIMESTAMP_NTZ(9),
 	    EVENT TEXT,
 	    EVENT_ID TEXT);",
-        expected1.ident.database.clone(),
-        expected1.ident.schema.clone(),
+        expected1.data.ident.database.clone(),
+        expected1.data.ident.schema.clone(),
         "tested1"
     ));
 

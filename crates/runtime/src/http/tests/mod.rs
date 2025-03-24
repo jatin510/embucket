@@ -15,12 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-pub mod common;
-pub mod databases;
 pub mod databases_navigation;
-pub mod queries;
 pub mod query;
-pub mod volumes;
-pub mod worksheets;
+
 //#[cfg(test)]
 //pub mod router_tests;
