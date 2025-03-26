@@ -16,6 +16,7 @@
 // under the License.
 
 use crate::http::error::ErrorResponse;
+use crate::http::ui::error::IntoStatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use http::StatusCode;
@@ -37,10 +38,6 @@ pub enum DatabasesAPIError {
     Update { source: MetastoreError },
     #[snafu(display("Get databases error: {source}"))]
     List { source: MetastoreError },
-}
-
-trait IntoStatusCode {
-    fn status_code(&self) -> StatusCode;
 }
 
 // Select which status code to return.

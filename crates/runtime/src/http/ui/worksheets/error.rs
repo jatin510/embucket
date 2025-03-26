@@ -16,6 +16,7 @@
 // under the License.
 
 use crate::http::error::ErrorResponse;
+use crate::http::ui::error::IntoStatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use http::status::StatusCode;
@@ -37,10 +38,6 @@ pub enum WorksheetsAPIError {
     Update { source: WorksheetsStoreError },
     #[snafu(display("Get worksheets error: {source}"))]
     List { source: WorksheetsStoreError },
-}
-
-trait IntoStatusCode {
-    fn status_code(&self) -> StatusCode;
 }
 
 // Select which status code to return.
