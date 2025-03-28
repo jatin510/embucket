@@ -17,22 +17,18 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use crate::http::ui::databases::models::DatabaseCreatePayload;
-use crate::http::ui::queries::models::QueryCreatePayload;
+use crate::http::ui::databases::models::{Database, DatabaseCreatePayload};
 use crate::http::ui::schemas::models::SchemaCreatePayload;
-use crate::http::ui::tables::models::TableInfoResponse;
 use crate::http::ui::tests::common::{req, ui_test_op, Entity, Op};
-use crate::http::ui::volumes::models::{VolumeCreatePayload, VolumeCreateResponse};
-use crate::http::ui::worksheets::{WorksheetCreatePayload, WorksheetResponse};
+use crate::http::ui::volumes::models::{Volume, VolumeCreatePayload, VolumeCreateResponse};
 use crate::tests::run_icebucket_test_server;
 use http::Method;
-use icebucket_metastore::IceBucketVolumeType;
-use icebucket_metastore::{IceBucketDatabase, IceBucketVolume};
+use icebucket_metastore::{IceBucketDatabase, IceBucketVolume, IceBucketVolumeType};
 use serde_json::json;
 
 #[tokio::test]
 #[allow(clippy::too_many_lines)]
-async fn test_ui_tables() {
+async fn test_ui_schemas() {
     let addr = run_icebucket_test_server().await;
     let client = reqwest::Client::new();
 
@@ -42,11 +38,10 @@ async fn test_ui_tables() {
         Op::Create,
         None,
         &Entity::Volume(VolumeCreatePayload {
-            data: IceBucketVolume {
+            data: Volume::from(IceBucketVolume {
                 ident: String::new(),
                 volume: IceBucketVolumeType::Memory,
-            }
-            .into(),
+            }),
         }),
     )
     .await;
@@ -64,7 +59,7 @@ async fn test_ui_tables() {
         Op::Create,
         None,
         &Entity::Database(DatabaseCreatePayload {
-            data: expected1.clone().into(),
+            data: Database::from(expected1.clone()),
         }),
     )
     .await;
@@ -88,85 +83,19 @@ async fn test_ui_tables() {
     .unwrap();
     assert_eq!(http::StatusCode::OK, res.status());
 
+    //Delete existing schema
     let res = req(
         &client,
-        Method::POST,
-        &format!("http://{addr}/ui/worksheets"),
-        json!(WorksheetCreatePayload {
-            name: "test".to_string(),
-            content: String::new(),
-        })
-        .to_string(),
-    )
-    .await
-    .unwrap();
-    assert_eq!(http::StatusCode::OK, res.status());
-    let worksheet = res.json::<WorksheetResponse>().await.unwrap().data;
-
-    let query_payload = QueryCreatePayload {
-        query: format!(
-            "create or replace Iceberg TABLE {}.{}.{}
-        external_volume = ''
-	    catalog = ''
-	    base_location = ''
-        (
-	    APP_ID TEXT,
-	    PLATFORM TEXT,
-	    EVENT TEXT
-	    );",
-            database_name.clone(),
-            schema_name.clone(),
-            "tested1"
-        ),
-        context: None,
-    };
-
-    let res = req(
-        &client,
-        Method::POST,
-        &format!("http://{addr}/ui/worksheets/{}/queries", worksheet.id),
-        json!(query_payload).to_string(),
-    )
-    .await
-    .unwrap();
-    assert_eq!(http::StatusCode::OK, res.status());
-
-    let query_payload = QueryCreatePayload {
-        query: format!(
-            "INSERT INTO {}.{}.{} (APP_ID, PLATFORM, EVENT)
-        VALUES ('12345', 'iOS', 'login'),
-               ('67890', 'Android', 'purchase')",
-            database_name.clone(),
-            schema_name.clone(),
-            "tested1"
-        ),
-        context: None,
-    };
-
-    let res = req(
-        &client,
-        Method::POST,
-        &format!("http://{addr}/ui/worksheets/{}/queries", worksheet.id),
-        json!(query_payload).to_string(),
-    )
-    .await
-    .unwrap();
-    assert_eq!(http::StatusCode::OK, res.status());
-
-    let res = req(
-        &client,
-        Method::GET,
+        Method::DELETE,
         &format!(
-            "http://{addr}/ui/databases/{}/schemas/{}/tables/tested1/info",
+            "http://{addr}/ui/databases/{}/schemas/{}",
             database_name.clone(),
-            schema_name.clone()
-        ),
+            payload.name.clone()
+        )
+        .to_string(),
         String::new(),
     )
     .await
     .unwrap();
     assert_eq!(http::StatusCode::OK, res.status());
-    let table: TableInfoResponse = res.json().await.unwrap();
-    assert_eq!(3, table.data.columns.len());
-    assert_eq!(2, table.data.total_rows);
 }

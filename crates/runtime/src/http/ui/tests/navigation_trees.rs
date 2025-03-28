@@ -18,7 +18,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use crate::http::ui::databases::models::DatabaseCreatePayload;
-use crate::http::ui::models::databases_navigation::NavigationDatabase;
+use crate::http::ui::navigation_trees::models::NavigationTreesResponse;
 use crate::http::ui::queries::models::QueryCreatePayload;
 use crate::http::ui::schemas::models::SchemaCreatePayload;
 use crate::http::ui::tests::common::req;
@@ -27,8 +27,8 @@ use crate::http::ui::volumes::models::{Volume, VolumeCreatePayload, VolumeCreate
 use crate::http::ui::worksheets::models::{WorksheetCreatePayload, WorksheetResponse};
 use crate::tests::run_icebucket_test_server;
 use http::Method;
+use icebucket_metastore::IceBucketVolumeType;
 use icebucket_metastore::{IceBucketDatabase, IceBucketVolume};
-use icebucket_metastore::{IceBucketSchema, IceBucketSchemaIdent, IceBucketVolumeType};
 use serde_json::json;
 
 #[tokio::test]
@@ -36,13 +36,13 @@ use serde_json::json;
 async fn test_ui_databases_navigation() {
     let addr = run_icebucket_test_server().await;
     let client = reqwest::Client::new();
-    let url = format!("http://{addr}/ui/databases-navigation");
+    let url = format!("http://{addr}/ui/navigation-trees");
     let res = req(&client, Method::GET, &url, String::new())
         .await
         .unwrap();
     assert_eq!(http::StatusCode::OK, res.status());
-    let databases_navigation: Vec<NavigationDatabase> = res.json().await.unwrap();
-    assert_eq!(0, databases_navigation.len());
+    let databases_navigation: NavigationTreesResponse = res.json().await.unwrap();
+    assert_eq!(0, databases_navigation.items.len());
 
     let res = ui_test_op(
         addr,
@@ -83,31 +83,36 @@ async fn test_ui_databases_navigation() {
         .await
         .unwrap();
     assert_eq!(http::StatusCode::OK, res.status());
-    let databases_navigation: Vec<NavigationDatabase> = res.json().await.unwrap();
-    assert_eq!(2, databases_navigation.len());
+    let databases_navigation: NavigationTreesResponse = res.json().await.unwrap();
+    assert_eq!(2, databases_navigation.items.len());
 
-    // Create schema, Ok
-    let expected1 = SchemaCreatePayload {
-        data: IceBucketSchema {
-            ident: IceBucketSchemaIdent {
-                schema: "testing1".to_string(),
-                database: expected1.data.name.clone(),
-            },
-            properties: None,
-        }
-        .into(),
+    let schema_name = "testing1".to_string();
+    let payload = SchemaCreatePayload {
+        name: schema_name.clone(),
     };
-    //1 SCHEMA
-    let _res = ui_test_op(addr, Op::Create, None, &Entity::Schema(expected1.clone())).await;
+    //Create schema
+    let res = req(
+        &client,
+        Method::POST,
+        &format!(
+            "http://{addr}/ui/databases/{}/schemas",
+            expected1.data.name.clone()
+        )
+        .to_string(),
+        json!(payload).to_string(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(http::StatusCode::OK, res.status());
 
     let res = req(&client, Method::GET, &url, String::new())
         .await
         .unwrap();
     assert_eq!(http::StatusCode::OK, res.status());
-    let databases_navigation: Vec<NavigationDatabase> = res.json().await.unwrap();
-    assert_eq!(2, databases_navigation.len());
-    assert_eq!(1, databases_navigation.first().unwrap().schemas.len());
-    assert_eq!(0, databases_navigation.last().unwrap().schemas.len());
+    let databases_navigation: NavigationTreesResponse = res.json().await.unwrap();
+    assert_eq!(2, databases_navigation.items.len());
+    assert_eq!(1, databases_navigation.items.first().unwrap().schemas.len());
+    assert_eq!(0, databases_navigation.items.last().unwrap().schemas.len());
 
     let res = req(
         &client,
@@ -138,8 +143,8 @@ async fn test_ui_databases_navigation() {
 	    DVCE_CREATED_TSTAMP TIMESTAMP_NTZ(9),
 	    EVENT TEXT,
 	    EVENT_ID TEXT);",
-            expected1.data.database.clone(),
             expected1.data.name.clone(),
+            schema_name.clone(),
             "tested1"
         ),
         context: None,
@@ -159,11 +164,12 @@ async fn test_ui_databases_navigation() {
         .await
         .unwrap();
     assert_eq!(http::StatusCode::OK, res.status());
-    let databases_navigation: Vec<NavigationDatabase> = res.json().await.unwrap();
+    let databases_navigation: NavigationTreesResponse = res.json().await.unwrap();
 
     assert_eq!(
         1,
         databases_navigation
+            .items
             .first()
             .unwrap()
             .schemas

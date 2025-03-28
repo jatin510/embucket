@@ -18,24 +18,23 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-// #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-// #[serde(rename_all = "camelCase")]
-// pub struct CreateTablePayload {
-//     pub(crate) name: String,
-//     pub(crate) columns: Vec<TableColumn>,
-// }
-//
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TableInfoResponse {
+    #[serde(flatten)]
+    pub(crate) data: TableInfo,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct TableResponse {
+pub(crate) struct TableInfo {
     pub(crate) name: String,
-    pub(crate) columns: Vec<TableColumn>,
+    pub(crate) columns: Vec<TableInfoColumn>,
     pub(crate) total_rows: i64,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct TableColumn {
+pub(crate) struct TableInfoColumn {
     pub(crate) name: String,
     pub(crate) r#type: String,
 }

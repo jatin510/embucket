@@ -52,8 +52,7 @@ impl Into<IceBucketSchema> for Schema {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaCreatePayload {
-    #[serde(flatten)]
-    pub data: Schema,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -65,14 +64,14 @@ pub struct SchemaUpdatePayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct SchemaCreateResponse {
+pub struct SchemaUpdateResponse {
     #[serde(flatten)]
     pub data: Schema,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct SchemaUpdateResponse {
+pub struct SchemaCreateResponse {
     #[serde(flatten)]
     pub data: Schema,
 }

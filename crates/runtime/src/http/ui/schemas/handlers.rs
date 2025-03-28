@@ -32,6 +32,7 @@ use axum::{
 use icebucket_metastore::error::MetastoreError;
 use icebucket_metastore::models::IceBucketSchemaIdent;
 use icebucket_metastore::IceBucketSchema;
+use std::collections::HashMap;
 use std::convert::From;
 use std::convert::Into;
 use utoipa::OpenApi;
@@ -41,16 +42,14 @@ use utoipa::OpenApi;
     paths(
         create_schema,
         delete_schema,
-        get_schema,
         // update_schema,
-        list_schemas,
+        // get_schema,
+        // list_schemas,
     ),
     components(
         schemas(
             SchemaCreatePayload,
             SchemaCreateResponse,
-            SchemaResponse,
-            SchemasResponse,
             ErrorResponse,
         )
     ),
@@ -80,9 +79,13 @@ pub struct ApiDoc;
 pub async fn create_schema(
     State(state): State<AppState>,
     Path(database_name): Path<String>,
-    Json(schema): Json<SchemaCreatePayload>,
+    Json(payload): Json<SchemaCreatePayload>,
 ) -> SchemasResult<Json<SchemaCreateResponse>> {
-    let schema: IceBucketSchema = schema.data.into();
+    let ident = IceBucketSchemaIdent::new(database_name, payload.name);
+    let schema = IceBucketSchema {
+        ident,
+        properties: Some(HashMap::new()),
+    };
     state
         .metastore
         .create_schema(&schema.ident.clone(), schema)
@@ -93,6 +96,35 @@ pub async fn create_schema(
                 data: Schema::from(rw_object.data),
             })
         })
+}
+
+#[utoipa::path(
+    delete,
+    path = "/ui/databases/{databaseName}/schemas/{schemaName}",
+    operation_id = "deleteSchema",
+    tags = ["schemas"],
+    params(
+        ("databaseName" = String, description = "Database Name"),
+        ("schemaName" = String, description = "Schema Name")
+    ),
+    responses(
+        (status = 204, description = "Successful Response"),
+        (status = 404, description = "Schema not found", body = ErrorResponse),
+        (status = 422, description = "Unprocessable entity", body = ErrorResponse),
+    )
+)]
+#[tracing::instrument(level = "debug", skip(state), err, ret(level = tracing::Level::TRACE))]
+pub async fn delete_schema(
+    State(state): State<AppState>,
+    Query(query): Query<QueryParameters>,
+    Path((database_name, schema_name)): Path<(String, String)>,
+) -> SchemasResult<()> {
+    let ident = IceBucketSchemaIdent::new(database_name, schema_name);
+    state
+        .metastore
+        .delete_schema(&ident, query.cascade.unwrap_or_default())
+        .await
+        .map_err(|e| SchemasAPIError::Delete { source: e })
 }
 
 #[utoipa::path(
@@ -131,35 +163,6 @@ pub async fn get_schema(
         }),
         Err(e) => Err(SchemasAPIError::Get { source: e }),
     }
-}
-
-#[utoipa::path(
-    delete,
-    path = "/ui/databases/{databaseName}/schemas/{schemaName}",
-    operation_id = "deleteSchema",
-    tags = ["schemas"],
-    params(
-        ("databaseName" = String, description = "Database Name"),
-        ("schemaName" = String, description = "Schema Name")
-    ),
-    responses(
-        (status = 204, description = "Successful Response"),
-        (status = 404, description = "Schema not found", body = ErrorResponse),
-        (status = 422, description = "Unprocessable entity", body = ErrorResponse),
-    )
-)]
-#[tracing::instrument(level = "debug", skip(state), err, ret(level = tracing::Level::TRACE))]
-pub async fn delete_schema(
-    State(state): State<AppState>,
-    Query(query): Query<QueryParameters>,
-    Path((database_name, schema_name)): Path<(String, String)>,
-) -> SchemasResult<()> {
-    let schema_ident = IceBucketSchemaIdent::new(database_name, schema_name);
-    state
-        .metastore
-        .delete_schema(&schema_ident, query.cascade.unwrap_or_default())
-        .await
-        .map_err(|e| SchemasAPIError::Delete { source: e })
 }
 
 #[utoipa::path(
