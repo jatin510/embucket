@@ -39,12 +39,13 @@ use crate::http::ui::navigation_trees::handlers::{
 };
 use crate::http::ui::queries::handlers::ApiDoc as QueryApiDoc;
 use crate::http::ui::schemas::handlers::ApiDoc as SchemasApiDoc;
-use crate::http::ui::tables::handlers::ApiDoc as TableApiDoc;
+use crate::http::ui::tables::handlers::{
+    get_table_info, get_table_preview_data, ApiDoc as TableApiDoc,
+};
 use crate::http::ui::volumes::handlers::ApiDoc as VolumesApiDoc;
 use crate::http::ui::worksheets::handlers::ApiDoc as WorksheetsApiDoc;
 
 use crate::http::state::AppState;
-use crate::http::ui::tables::handlers::get_table_info;
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, post};
 use axum::Router;
@@ -107,6 +108,10 @@ pub fn create_router() -> Router<AppState> {
         .route(
             "/databases/{databaseName}/schemas/{schemaName}/tables/{tableName}/info",
             get(get_table_info),
+        )
+        .route(
+            "/databases/{databaseName}/schemas/{schemaName}/tables/{tableName}/preview",
+            get(get_table_preview_data),
         )
         .route("/worksheets", get(worksheets).post(create_worksheet))
         .route(
