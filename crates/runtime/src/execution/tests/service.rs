@@ -19,16 +19,13 @@ use crate::execution::query::IceBucketQueryContext;
 use crate::execution::service::ExecutionService;
 use crate::execution::utils::{Config, DataSerializationFormat};
 use crate::SlateDBMetastore;
-use crate::SlateDBWorksheetsStore;
 
 #[tokio::test]
 #[allow(clippy::expect_used)]
 async fn test_execute_always_returns_schema() {
     let metastore = SlateDBMetastore::new_in_memory().await;
-    let history = SlateDBWorksheetsStore::new_in_memory().await;
     let execution_svc = ExecutionService::new(
         metastore.clone(),
-        history.clone(),
         Config {
             dbt_serialization_format: DataSerializationFormat::Json,
         },

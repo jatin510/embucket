@@ -62,8 +62,8 @@ pub trait WorksheetsStore: std::fmt::Debug + Send + Sync {
     async fn update_worksheet(&self, worksheet: Worksheet) -> WorksheetsStoreResult<()>;
     async fn get_worksheets(&self) -> WorksheetsStoreResult<Vec<Worksheet>>;
 
-    async fn add_history_item(&self, item: QueryRecord) -> WorksheetsStoreResult<()>;
-    async fn query_history(
+    async fn add_query(&self, item: &QueryRecord) -> WorksheetsStoreResult<()>;
+    async fn get_queries(
         &self,
         worksheet_id: WorksheetId,
         cursor: Option<i64>,
@@ -156,15 +156,15 @@ impl WorksheetsStore for SlateDBWorksheetsStore {
             .context(WorksheetsListSnafu)?)
     }
 
-    async fn add_history_item(&self, item: QueryRecord) -> WorksheetsStoreResult<()> {
+    async fn add_query(&self, item: &QueryRecord) -> WorksheetsStoreResult<()> {
         Ok(self
             .db
-            .put_iterable_entity(&item)
+            .put_iterable_entity(item)
             .await
             .context(QueryAddSnafu)?)
     }
 
-    async fn query_history(
+    async fn get_queries(
         &self,
         worksheet_id: WorksheetId,
         cursor: Option<i64>,
@@ -221,13 +221,13 @@ mod tests {
             }
             created.push(item.clone());
             eprintln!("added {:?}", item.key());
-            db.add_history_item(item).await.unwrap();
+            db.add_query(&item).await.unwrap();
         }
 
         let cursor = <QueryRecord as IterableEntity>::Cursor::CURSOR_MIN;
         eprintln!("cursor: {cursor}");
         let retrieved = db
-            .query_history(worksheet.id, Some(cursor), Some(10))
+            .get_queries(worksheet.id, Some(cursor), Some(10))
             .await
             .unwrap();
         for item in &retrieved {
