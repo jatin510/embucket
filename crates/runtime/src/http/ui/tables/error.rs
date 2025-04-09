@@ -38,6 +38,7 @@ use crate::http::ui::error::IntoStatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use http::StatusCode;
+use icebucket_metastore::error::MetastoreError;
 use snafu::prelude::*;
 
 pub type TablesResult<T> = Result<T, TablesAPIError>;
@@ -48,7 +49,9 @@ pub enum TablesAPIError {
     // #[snafu(display("Create table error: {source}"))]
     // Create { source: MetastoreError },
     #[snafu(display("Get table error: {source}"))]
-    Get { source: ExecutionError },
+    GetExecution { source: ExecutionError },
+    #[snafu(display("Get table error: {source}"))]
+    GetMetastore { source: MetastoreError },
     // #[snafu(display("Delete table error: {source}"))]
     // Delete { source: MetastoreError },
     // #[snafu(display("Update table error: {source}"))]
@@ -69,20 +72,23 @@ impl IntoStatusCode for TablesAPIError {
             //     }
             //     _ => StatusCode::INTERNAL_SERVER_ERROR,
             // },
-            Self::Get { source } => match &source {
+            Self::GetExecution { source } => match &source {
                 ExecutionError::TableNotFound { .. } => StatusCode::NOT_FOUND,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             },
-            // Self::Delete { source } => match &source {
-            //     MetastoreError::SchemaNotFound { .. } => StatusCode::NOT_FOUND,
-            //     _ => StatusCode::INTERNAL_SERVER_ERROR,
-            // },
-            // Self::Update { source } => match &source {
-            //     MetastoreError::SchemaNotFound { .. } => StatusCode::NOT_FOUND,
-            //     MetastoreError::Validation { .. } => StatusCode::BAD_REQUEST,
-            //     _ => StatusCode::INTERNAL_SERVER_ERROR,
-            // },
-            // Self::List { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::GetMetastore { source } => match &source {
+                MetastoreError::TableNotFound { .. } => StatusCode::NOT_FOUND,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            }, // Self::Delete { source } => match &source {
+               //     MetastoreError::SchemaNotFound { .. } => StatusCode::NOT_FOUND,
+               //     _ => StatusCode::INTERNAL_SERVER_ERROR,
+               // },
+               // Self::Update { source } => match &source {
+               //     MetastoreError::SchemaNotFound { .. } => StatusCode::NOT_FOUND,
+               //     MetastoreError::Validation { .. } => StatusCode::BAD_REQUEST,
+               //     _ => StatusCode::INTERNAL_SERVER_ERROR,
+               // },
+               // Self::List { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
