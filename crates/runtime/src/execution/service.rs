@@ -15,14 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use std::vec;
 use std::{collections::HashMap, sync::Arc};
 
-use arrow::array::RecordBatch;
-use bytes::Bytes;
-use datafusion::{execution::object_store::ObjectStoreUrl, prelude::CsvReadOptions};
-use object_store::{path::Path, PutPayload};
+use bytes::{Buf, Bytes};
+use datafusion::arrow::array::RecordBatch;
+use datafusion::arrow::csv::reader::Format;
+use datafusion::arrow::csv::ReaderBuilder;
+use datafusion::catalog::{MemoryCatalogProvider, MemorySchemaProvider};
+use datafusion::catalog_common::CatalogProvider;
+use datafusion::datasource::memory::MemTable;
+use datafusion_common::TableReference;
 use snafu::ResultExt;
-use uuid::Uuid;
 
 use super::{
     models::ColumnInfo,
@@ -125,8 +129,14 @@ impl ExecutionService {
         session_id: &str,
         table_ident: &IceBucketTableIdent,
         data: Bytes,
-        file_name: String,
+        file_name: &str,
     ) -> ExecutionResult<()> {
+        // TODO: is there a way to avoid temp table approach altogether?
+        // File upload works as follows:
+        // 1. Convert incoming data to a record batch
+        // 2. Create a temporary table in memory
+        // 3. Use Execution service to insert data into the target table from the temporary table
+        // 4. Drop the temporary table
         let sessions = self.df_sessions.read().await;
         let user_session =
             sessions
@@ -134,77 +144,75 @@ impl ExecutionService {
                 .ok_or(ExecutionError::MissingDataFusionSession {
                     id: session_id.to_string(),
                 })?;
-        let unique_file_id = Uuid::new_v4().to_string();
-        let metastore_db = self
-            .metastore
-            .get_database(&table_ident.database)
-            .await
-            .context(ex_error::MetastoreSnafu)?
-            .ok_or(ExecutionError::DatabaseNotFound {
-                db: table_ident.database.clone(),
-            })?;
 
-        let object_store = self
-            .metastore
-            .volume_object_store(&metastore_db.volume)
-            .await
-            .context(ex_error::MetastoreSnafu)?
-            .ok_or(ExecutionError::VolumeNotFound {
-                volume: metastore_db.volume.clone(),
-            })?;
+        let source_table = TableReference::full("tmp_db", "tmp_schema", "tmp_table");
+        let inmem_catalog = MemoryCatalogProvider::new();
+        inmem_catalog
+            .register_schema(
+                source_table.schema().unwrap_or_default(),
+                Arc::new(MemorySchemaProvider::new()),
+            )
+            .context(ex_error::DataFusionSnafu)?;
+        user_session.ctx.register_catalog(
+            source_table.catalog().unwrap_or_default(),
+            Arc::new(inmem_catalog),
+        );
 
-        // this path also computes inside catalog service (create_table)
-        // TODO need to refactor the code so this path calculation is in one place
-        let table_path = self
-            .metastore
-            .url_for_table(table_ident)
-            .await
-            .context(ex_error::MetastoreSnafu)?;
-        let upload_path = format!("{table_path}/tmp/{}/{file_name}", unique_file_id.clone());
-
-        let path = Path::from(upload_path.clone());
-        object_store
-            .put(&path, PutPayload::from(data))
-            .await
-            .context(ex_error::ObjectStoreSnafu)?;
-
-        let temp_table_ident = IceBucketTableIdent {
-            database: "datafusion".to_string(),
-            schema: "tmp".to_string(),
-            table: unique_file_id.clone(),
+        // Here we create an arrow csv reader that infers the schema from first 10 rows
+        // and then builds a record batch
+        // TODO: This partially duplicates what Datafusion does with `CsvFormat::infer_schema`
+        let (schema, _) = Format::default()
+            .with_header(true)
+            .infer_schema(data.clone().reader(), Some(100))
+            .map_err(|e| ExecutionError::DataFusion { source: e.into() })?;
+        let schema = Arc::new(schema);
+        let mut csv = ReaderBuilder::new(schema.clone())
+            .with_header(true)
+            .build_buffered(data.reader())
+            .map_err(|e| ExecutionError::DataFusion { source: e.into() })?;
+        let batches = match csv.next() {
+            Some(Ok(batch)) => batch,
+            Some(Err(e)) => return Err(ExecutionError::DataFusion { source: e.into() }),
+            None => {
+                return Err(ExecutionError::UploadFailed {
+                    message: "No data found".to_string(),
+                })
+            }
         };
 
-        // We construct this URL so we can unwrap it
-        #[allow(clippy::unwrap_used)]
-        user_session.ctx.register_object_store(
-            ObjectStoreUrl::parse(&upload_path).unwrap().as_ref(),
-            object_store.clone(),
-        );
+        let table = MemTable::try_new(schema, vec![vec![batches]])
+            .map_err(|e| ExecutionError::DataFusion { source: e })?;
         user_session
             .ctx
-            .register_csv(
-                temp_table_ident.to_string(),
-                upload_path,
-                CsvReadOptions::new(),
-            )
-            .await
+            .register_table(source_table.clone(), Arc::new(table))
             .context(ex_error::DataFusionSnafu)?;
 
-        let insert_query = format!("INSERT INTO {table_ident} SELECT * FROM {temp_table_ident}",);
+        // If target table already exists, we need to insert into it
+        // otherwise, we need to create it
+        let exists = user_session
+            .ctx
+            .table_exist(TableReference::full(
+                table_ident.database.clone(),
+                table_ident.schema.clone(),
+                table_ident.table.clone(),
+            ))
+            .context(ex_error::DataFusionSnafu)?;
 
-        let query = user_session.query(&insert_query, IceBucketQueryContext::default());
+        let table = source_table.clone();
+        let query = if exists {
+            format!("INSERT INTO {table_ident} SELECT * FROM {table}")
+        } else {
+            format!("CREATE TABLE {table_ident} AS SELECT * FROM {table}")
+        };
 
+        let query = user_session.query(&query, IceBucketQueryContext::default());
         query.execute().await?;
 
         user_session
             .ctx
-            .deregister_table(temp_table_ident.to_string())
+            .deregister_table(source_table)
             .context(ex_error::DataFusionSnafu)?;
 
-        object_store
-            .delete(&path)
-            .await
-            .context(ex_error::ObjectStoreSnafu)?;
         Ok(())
     }
 
