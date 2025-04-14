@@ -210,7 +210,6 @@ impl IceBucketDFMetastore {
                 self.mirror.remove(db.key());
             }
         }
-
         Ok(())
     }
 }
