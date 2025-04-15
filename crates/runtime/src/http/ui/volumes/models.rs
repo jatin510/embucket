@@ -18,6 +18,7 @@
 use icebucket_metastore::models::{
     AwsCredentials, IceBucketFileVolume, IceBucketS3Volume, IceBucketVolume, IceBucketVolumeType,
 };
+use icebucket_metastore::IceBucketS3TablesVolume;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
@@ -29,7 +30,16 @@ pub struct S3Volume {
     pub skip_signature: Option<bool>,
     pub metadata_endpoint: Option<String>,
     pub credentials: Option<AwsCredentials>,
-    pub arn: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Eq, PartialEq)]
+pub struct S3TablesVolume {
+    pub region: String,
+    pub bucket: Option<String>,
+    pub endpoint: String,
+    pub credentials: AwsCredentials,
+    pub name: String,
+    pub arn: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Eq, PartialEq)]
@@ -41,6 +51,7 @@ pub struct FileVolume {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum VolumeType {
     S3(S3Volume),
+    S3Tables(S3TablesVolume),
     File(FileVolume),
     Memory,
 }
@@ -57,17 +68,22 @@ impl From<IceBucketVolume> for Volume {
         Self {
             name: volume.ident,
             volume: match volume.volume {
-                IceBucketVolumeType::S3(volume) | IceBucketVolumeType::S3Tables(volume) => {
-                    VolumeType::S3(S3Volume {
-                        region: volume.region,
-                        bucket: volume.bucket,
-                        endpoint: volume.endpoint,
-                        skip_signature: volume.skip_signature,
-                        metadata_endpoint: volume.metadata_endpoint,
-                        credentials: volume.credentials,
-                        arn: volume.arn,
-                    })
-                }
+                IceBucketVolumeType::S3(volume) => VolumeType::S3(S3Volume {
+                    region: volume.region,
+                    bucket: volume.bucket,
+                    endpoint: volume.endpoint,
+                    skip_signature: volume.skip_signature,
+                    metadata_endpoint: volume.metadata_endpoint,
+                    credentials: volume.credentials,
+                }),
+                IceBucketVolumeType::S3Tables(volume) => VolumeType::S3Tables(S3TablesVolume {
+                    region: volume.region,
+                    bucket: volume.bucket,
+                    endpoint: volume.endpoint,
+                    credentials: volume.credentials,
+                    name: volume.name,
+                    arn: volume.arn,
+                }),
                 IceBucketVolumeType::File(file) => VolumeType::File(FileVolume { path: file.path }),
                 IceBucketVolumeType::Memory => VolumeType::Memory,
             },
@@ -89,8 +105,17 @@ impl Into<IceBucketVolume> for Volume {
                     skip_signature: volume.skip_signature,
                     metadata_endpoint: volume.metadata_endpoint,
                     credentials: volume.credentials,
-                    arn: volume.arn,
                 }),
+                VolumeType::S3Tables(volume) => {
+                    IceBucketVolumeType::S3Tables(IceBucketS3TablesVolume {
+                        region: volume.region,
+                        bucket: volume.bucket,
+                        endpoint: volume.endpoint,
+                        credentials: volume.credentials,
+                        name: volume.name,
+                        arn: volume.arn,
+                    })
+                }
                 VolumeType::File(volume) => {
                     IceBucketVolumeType::File(IceBucketFileVolume { path: volume.path })
                 }

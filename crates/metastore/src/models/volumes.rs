@@ -81,8 +81,38 @@ pub struct IceBucketS3Volume {
     pub metadata_endpoint: Option<String>,
     #[validate(required, nested)]
     pub credentials: Option<AwsCredentials>,
+}
+
+#[derive(Validate, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, utoipa::ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub struct IceBucketS3TablesVolume {
     #[validate(length(min = 1))]
-    pub arn: Option<String>,
+    pub region: String,
+    #[validate(length(min = 1), custom(function = "validate_bucket_name"))]
+    pub bucket: Option<String>,
+    #[validate(length(min = 1))]
+    pub endpoint: String,
+    #[validate(nested)]
+    pub credentials: AwsCredentials,
+    #[validate(length(min = 1), custom(function = "validate_bucket_name"))]
+    pub name: String,
+    #[validate(length(min = 1))]
+    pub arn: String,
+}
+
+impl IceBucketS3TablesVolume {
+    #[must_use]
+    pub fn s3_builder(&self) -> AmazonS3Builder {
+        let s3_volume = IceBucketS3Volume {
+            region: Some(self.region.clone()),
+            bucket: Some(self.name.clone()),
+            endpoint: Some(self.endpoint.clone()),
+            skip_signature: None,
+            metadata_endpoint: None,
+            credentials: Some(self.credentials.clone()),
+        };
+        IceBucketVolume::get_s3_builder(&s3_volume)
+    }
 }
 
 fn validate_bucket_name(bucket_name: &str) -> Result<(), ValidationError> {
@@ -117,7 +147,7 @@ pub struct IceBucketFileVolume {
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum IceBucketVolumeType {
     S3(IceBucketS3Volume),
-    S3Tables(IceBucketS3Volume),
+    S3Tables(IceBucketS3TablesVolume),
     File(IceBucketFileVolume),
     Memory,
 }
@@ -125,7 +155,8 @@ pub enum IceBucketVolumeType {
 impl Validate for IceBucketVolumeType {
     fn validate(&self) -> Result<(), ValidationErrors> {
         match self {
-            Self::S3(volume) | Self::S3Tables(volume) => volume.validate(),
+            Self::S3(volume) => volume.validate(),
+            Self::S3Tables(volume) => volume.validate(),
             Self::File(volume) => volume.validate(),
             Self::Memory => Ok(()),
         }
@@ -152,8 +183,15 @@ impl IceBucketVolume {
 
     pub fn get_object_store(&self) -> MetastoreResult<Arc<dyn ObjectStore>> {
         match &self.volume {
-            IceBucketVolumeType::S3(volume) | IceBucketVolumeType::S3Tables(volume) => {
+            IceBucketVolumeType::S3(volume) => {
                 let s3_builder = Self::get_s3_builder(volume);
+                s3_builder
+                    .build()
+                    .map(|s3| Arc::new(s3) as Arc<dyn ObjectStore>)
+                    .context(metastore_error::ObjectStoreSnafu)
+            }
+            IceBucketVolumeType::S3Tables(volume) => {
+                let s3_builder = volume.s3_builder();
                 s3_builder
                     .build()
                     .map(|s3| Arc::new(s3) as Arc<dyn ObjectStore>)
@@ -207,7 +245,11 @@ impl IceBucketVolume {
     #[must_use]
     pub fn prefix(&self) -> String {
         match &self.volume {
-            IceBucketVolumeType::S3(volume) | IceBucketVolumeType::S3Tables(volume) => volume
+            IceBucketVolumeType::S3(volume) => volume
+                .bucket
+                .as_ref()
+                .map_or_else(|| "s3://".to_string(), |bucket| format!("s3://{bucket}")),
+            IceBucketVolumeType::S3Tables(volume) => volume
                 .bucket
                 .as_ref()
                 .map_or_else(|| "s3://".to_string(), |bucket| format!("s3://{bucket}")),

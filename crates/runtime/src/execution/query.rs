@@ -16,7 +16,8 @@
 // under the License.
 use arrow::array::{Int64Array, RecordBatch};
 use arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
-use datafusion::common::tree_node::{TransformedResult, TreeNode};
+use datafusion::catalog::MemoryCatalogProvider;
+use datafusion::catalog_common::CatalogProvider;
 use datafusion::datasource::default_table_source::provider_as_source;
 use datafusion::execution::session_state::SessionContextProvider;
 use datafusion::execution::session_state::SessionState;
@@ -29,14 +30,16 @@ use datafusion::sql::sqlparser::ast::{
     CreateTable as CreateTableStatement, Expr, Ident, ObjectName, Query, SchemaName, Statement,
     TableFactor, TableWithJoins,
 };
-use datafusion_common::ResolvedTableReference;
-use datafusion_common::{DataFusionError, TableReference};
+use datafusion_common::tree_node::{TransformedResult, TreeNode};
+use datafusion_common::{DataFusionError, ResolvedTableReference, TableReference};
 use datafusion_expr::logical_plan::dml::DmlStatement;
 use datafusion_expr::logical_plan::dml::InsertOp;
 use datafusion_expr::logical_plan::dml::WriteOp;
 use datafusion_expr::CreateMemoryTable;
 use datafusion_expr::DdlStatement;
+use datafusion_iceberg::catalog::catalog::IcebergCatalog;
 use datafusion_iceberg::planner::iceberg_transform;
+use iceberg_rust::catalog::create::CreateTableBuilder;
 use iceberg_rust::spec::arrow::schema::new_fields_with_ids;
 use iceberg_rust::spec::schema::Schema;
 use iceberg_rust::spec::types::StructType;
@@ -59,9 +62,9 @@ use std::ops::ControlFlow;
 use std::sync::Arc;
 use url::Url;
 
-use super::catalog::IceBucketDFMetastore;
+use super::catalog::{IceBucketDFCatalog, IceBucketDFMetastore};
+use super::datafusion::context_provider::ExtendedSqlToRel;
 use super::datafusion::functions::visit_functions_expressions;
-use super::datafusion::planner::ExtendedSqlToRel;
 use super::error::{self as ex_error, ExecutionError, ExecutionResult};
 use super::utils::NormalizedIdent;
 
@@ -370,40 +373,32 @@ impl IceBucketQuery {
             .sql_statement_to_plan(Statement::CreateTable(create_table_statement.clone()))
             .context(super::error::DataFusionSnafu)?;
 
-        let fields_with_ids = StructType::try_from(&new_fields_with_ids(
-            plan.schema().as_arrow().fields(),
-            &mut 0,
-        ))
-        .map_err(|err| DataFusionError::External(Box::new(err)))
-        .context(super::error::DataFusionSnafu)?;
-        let schema = Schema::builder()
-            .with_schema_id(0)
-            .with_identifier_field_ids(vec![])
-            .with_fields(fields_with_ids)
-            .build()
-            .map_err(|err| DataFusionError::External(Box::new(err)))
-            .context(super::error::DataFusionSnafu)?;
-
         // Check if it already exists, if it is - drop it
         // For now we behave as CREATE OR REPLACE
         // TODO support CREATE without REPLACE
-        let ib_table_ident = IceBucketTableIdent {
-            database: new_table_ident.0[0].to_string(),
-            schema: new_table_ident.0[1].to_string(),
-            table: new_table_ident.0[2].to_string(),
-        };
+        let ib_table_ident: IceBucketTableIdent = new_table_ident.into();
 
-        let table_exists = self
-            .metastore
-            .table_exists(&ib_table_ident)
-            .await
-            .context(ex_error::MetastoreSnafu)?;
+        let catalog = self
+            .session
+            .ctx
+            .state()
+            .catalog_list()
+            .catalog(ib_table_ident.database.as_str())
+            .ok_or(ExecutionError::CatalogNotFound {
+                catalog: ib_table_ident.database.clone(),
+            })?;
+        let schema_provider = catalog.schema(ib_table_ident.schema.as_str()).ok_or(
+            ExecutionError::SchemaNotFound {
+                schema: ib_table_ident.schema.clone(),
+            },
+        )?;
+
+        let table_exists = schema_provider.table_exist(ib_table_ident.table.as_str());
 
         if table_exists && create_table_statement.or_replace {
-            self.metastore
-                .delete_table(&ib_table_ident, true)
-                .await
-                .context(ex_error::MetastoreSnafu)?;
+            schema_provider
+                .deregister_table(&ib_table_ident.table)
+                .context(ex_error::DataFusionSnafu)?;
         } else if table_exists && create_table_statement.if_not_exists {
             return Err(ExecutionError::ObjectAlreadyExists {
                 type_name: "table".to_string(),
@@ -411,24 +406,13 @@ impl IceBucketQuery {
             });
         }
 
-        // TODO: Gather volume properties from the .options field
-        let table_create_request = IceBucketTableCreateRequest {
-            ident: ib_table_ident.clone(),
-            schema,
-            location: table_location,
-            partition_spec: None,
-            sort_order: None,
-            stage_create: None,
-            volume_ident: None,
-            is_temporary: Some(create_table_statement.temporary),
-            format: None,
-            properties: None,
-        };
-
-        self.metastore
-            .create_table(&ib_table_ident, table_create_request)
-            .await
-            .context(ex_error::MetastoreSnafu)?;
+        self.create_iceberg_table(
+            catalog,
+            table_location,
+            ib_table_ident.clone(),
+            plan.clone(),
+        )
+        .await?;
 
         // Now we have created table in the metastore, we need to register it in the catalog
         self.refresh_catalog().await?;
@@ -454,6 +438,79 @@ impl IceBucketQuery {
         }
 
         created_entity_response()
+    }
+
+    #[tracing::instrument(level = "trace", skip(self), err, ret)]
+    pub async fn drop_query(&self, query: &str) -> ExecutionResult<Vec<RecordBatch>> {
+        // TODO: Parse the query so that the table names can be normalized
+
+        let plan = self.get_custom_logical_plan(query).await?;
+        let transformed = plan
+            .transform(iceberg_transform)
+            .data()
+            .context(ex_error::DataFusionSnafu)?;
+        let res = self.execute_logical_plan(transformed).await?;
+        Ok(res)
+    }
+
+    /// The code below relies on iceberg_rust::catalog::Catalog trait for different iceberg catalog
+    /// implementations (REST, S3 table buckets, or anything else).
+    /// In case this is built-in datafusion's MemoryCatalog we shortcut and execute logical plan
+    /// and rely on its implementation to actually create a table.
+    /// Otherwise, code tries to downcast catalog to iceberg_rust::catalog::Catalog and if successful,
+    /// calls its API to call external Iceberg catalog to do the job with CreateTableBuilder.build().
+    #[allow(unused_variables)]
+    #[tracing::instrument(level = "trace", skip(self), err, ret)]
+    pub async fn create_iceberg_table(
+        &self,
+        catalog: Arc<dyn CatalogProvider>,
+        table_location: Option<String>,
+        ident: IceBucketTableIdent,
+        plan: LogicalPlan,
+    ) -> ExecutionResult<()> {
+        let iceberg_catalog =
+            if let Some(external_catalog) = catalog.as_any().downcast_ref::<IcebergCatalog>() {
+                Ok(external_catalog.catalog())
+            } else if let Some(icebucket_catalog) =
+                catalog.as_any().downcast_ref::<IceBucketDFCatalog>()
+            {
+                Ok(icebucket_catalog.catalog())
+            } else if catalog
+                .as_any()
+                .downcast_ref::<MemoryCatalogProvider>()
+                .is_some()
+            {
+                self.execute_logical_plan(plan).await?;
+                return Ok(());
+            } else {
+                return Err(ExecutionError::CatalogNotFound {
+                    catalog: "invalid type of catalog, expect iceberg or icebucket".to_string(),
+                });
+            }?;
+
+        let fields_with_ids = StructType::try_from(&new_fields_with_ids(
+            plan.schema().as_arrow().fields(),
+            &mut 0,
+        ))
+        .map_err(|err| DataFusionError::External(Box::new(err)))
+        .context(super::error::DataFusionSnafu)?;
+        let schema = Schema::builder()
+            .with_schema_id(0)
+            .with_identifier_field_ids(vec![])
+            .with_fields(fields_with_ids)
+            .build()
+            .map_err(|err| DataFusionError::External(Box::new(err)))
+            .context(super::error::DataFusionSnafu)?;
+
+        let mut create_table = CreateTableBuilder::default();
+        create_table
+            .with_name(ident.table)
+            .with_schema(schema)
+            // .with_location(location.clone())
+            .build(&[ident.schema], iceberg_catalog)
+            .await
+            .context(ex_error::IcebergSnafu)?;
+        Ok(())
     }
 
     pub async fn create_external_table_query(
@@ -734,19 +791,6 @@ impl IceBucketQuery {
                 ),
             })
         }
-    }
-
-    #[tracing::instrument(level = "trace", skip(self), err, ret)]
-    pub async fn drop_query(&self, query: &str) -> ExecutionResult<Vec<RecordBatch>> {
-        // TODO: Parse the query so that the table names can be normalized
-
-        let plan = self.get_custom_logical_plan(query).await?;
-        let transformed = plan
-            .transform(iceberg_transform)
-            .data()
-            .context(ex_error::DataFusionSnafu)?;
-        let res = self.execute_logical_plan(transformed).await?;
-        Ok(res)
     }
 
     #[tracing::instrument(level = "trace", skip(self), err, ret)]
