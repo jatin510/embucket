@@ -1,6 +1,6 @@
 ---
 source: crates/runtime/src/http/tests/query.rs
-expression: "(get_patched_query_response(query1), get_patched_query_response(query2),)"
+expression: "(get_patched_query_response(query1.as_str()),\nget_patched_query_response(query2.as_str()),)"
 ---
 (
     "{\"id\":99999,\"worksheetId\":99999,\"query\":\"\\n        CREATE TABLE benchmark.public.hits\\n        (\\n            WatchID BIGINT NOT NULL,\\n            JavaEnable INTEGER NOT NULL,\\n            Title TEXT NOT NULL,\\n            GoodEvent INTEGER NOT NULL,\\n            EventTime BIGINT NOT NULL,\\n            EventDate INTEGER NOT NULL,\\n            CounterID INTEGER NOT NULL,\\n            ClientIP INTEGER NOT NULL,\\n            PRIMARY KEY (CounterID, EventDate, EventTime, WatchID)\\n        );\\n    \",\"startTime\":\"2025-01-01T00:00:00Z\",\"endTime\":\"2025-01-01T00:00:00Z\",\"durationMs\":100,\"resultCount\":1,\"result\":{\"columns\":[{\"name\":\"count\",\"type\":\"fixed\"}],\"rows\":[[0]]},\"status\":\"Ok\",\"error\":\"\"}",
