@@ -92,7 +92,7 @@ impl ExecutionService {
                     id: session_id.to_string(),
                 })?;
 
-        let query_obj = user_session.query(query, query_context);
+        let mut query_obj = user_session.query(query, query_context);
 
         let records: Vec<RecordBatch> = query_obj.execute().await?;
 
@@ -106,12 +106,8 @@ impl ExecutionService {
         // TODO: Perhaps it's better to return a schema as a result of `execute` method
         let columns = if columns.is_empty() {
             query_obj
-                .plan()
-                .await
-                .map_err(|e| ExecutionError::DataFusionQuery {
-                    query: query.to_string(),
-                    source: e,
-                })?
+                .get_custom_logical_plan(&query_obj.raw_query)
+                .await?
                 .schema()
                 .fields()
                 .iter()
@@ -219,7 +215,7 @@ impl ExecutionService {
             format!("CREATE TABLE {table_ident} AS SELECT * FROM {table}")
         };
 
-        let query = user_session.query(&query, QueryContext::default());
+        let mut query = user_session.query(&query, QueryContext::default());
         Box::pin(query.execute()).await?;
 
         user_session
