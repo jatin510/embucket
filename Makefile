@@ -18,7 +18,6 @@ release:
 test:
 	$(CARGO) test
 
-
 integration-test: build
 	cd tests && \
 	if [ ! -d "venv" ]; then \

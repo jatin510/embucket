@@ -22,6 +22,7 @@ use dotenv::dotenv;
 use embucket_runtime::{
     config::{DbConfig, RuntimeConfig},
     http::config::WebConfig,
+    http::web_assets::config::StaticWebConfig,
     run_binary,
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -47,6 +48,7 @@ async fn main() {
     let host = opts.host.clone().unwrap();
     let iceberg_catalog_url = opts.catalog_url.clone().unwrap();
     let port = opts.port.unwrap();
+    let web_assets_port = opts.assets_port.unwrap();
     let allow_origin = if opts.cors_enabled.unwrap_or(false) {
         opts.cors_allow_origin.clone()
     } else {
@@ -71,11 +73,16 @@ async fn main() {
                     slatedb_prefix: slatedb_prefix.clone(),
                 },
                 web: WebConfig {
-                    host,
+                    host: host.clone(),
                     port,
-                    allow_origin,
-                    data_format: dbt_serialization_format.clone(),
+                    allow_origin: allow_origin.clone(),
+                    data_format: dbt_serialization_format,
                     iceberg_catalog_url,
+                },
+                web_assets: StaticWebConfig {
+                    host,
+                    port: web_assets_port,
+                    allow_origin,
                 },
             };
 
