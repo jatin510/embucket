@@ -35,9 +35,18 @@ interface DataTableProps<T> {
   data: T[];
   onRowClick?: (row: T) => void;
   isLoading: boolean;
+  removeLRBorders?: boolean;
+  rounded?: boolean;
 }
 
-export function DataTable<T>({ columns, data, onRowClick, isLoading }: DataTableProps<T>) {
+export function DataTable<T>({
+  columns,
+  data,
+  onRowClick,
+  isLoading,
+  removeLRBorders,
+  rounded,
+}: DataTableProps<T>) {
   const table = useReactTable({
     data,
     columns,
@@ -45,7 +54,7 @@ export function DataTable<T>({ columns, data, onRowClick, isLoading }: DataTable
   });
 
   return (
-    <Table>
+    <Table removeLRBorders={removeLRBorders} rounded={rounded}>
       <TableHeader>
         {table.getHeaderGroups().map((headerGroup) => (
           <TableRow key={headerGroup.id} className="text-nowrap hover:bg-inherit">

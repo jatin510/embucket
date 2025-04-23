@@ -2,18 +2,18 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { createColumnHelper } from '@tanstack/react-table';
 
 import { DataTable } from '@/components/data-table/data-table';
-import type { Column } from '@/orval/models';
+import type { Column, Row } from '@/orval/models';
 
 interface QueryResultDataTableProps {
   isLoading: boolean;
-  rows: unknown[][];
+  rows: Row[];
   columns: Column[];
 }
 
 export function QueryResultDataTable({ isLoading, rows, columns }: QueryResultDataTableProps) {
   const columnHelper = createColumnHelper<unknown[]>();
 
-  const tableColumns: ColumnDef<unknown[], string>[] = columns.map((column) =>
+  const tableColumns: ColumnDef<Row, string>[] = columns.map((column) =>
     columnHelper.accessor((row) => row[columns.indexOf(column)], {
       header: column.name,
       cell: (info) => info.getValue(),
@@ -23,5 +23,5 @@ export function QueryResultDataTable({ isLoading, rows, columns }: QueryResultDa
     }),
   );
 
-  return <DataTable columns={tableColumns} data={rows} isLoading={isLoading} />;
+  return <DataTable removeLRBorders columns={tableColumns} data={rows} isLoading={isLoading} />;
 }

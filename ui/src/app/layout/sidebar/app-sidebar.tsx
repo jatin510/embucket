@@ -1,7 +1,8 @@
 import type * as React from 'react';
 
+import { useQueryClient } from '@tanstack/react-query';
 import type { LinkProps } from '@tanstack/react-router';
-import { Link } from '@tanstack/react-router';
+import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import type { LucideIcon } from 'lucide-react';
 import {
   Activity,
@@ -29,6 +30,7 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
+import { getGetWorksheetsQueryKey, useCreateWorksheet, useGetWorksheets } from '@/orval/worksheets';
 
 import { AppSidebarAvatarMenu } from './app-sidebar-avatar-menu';
 import { AppSidebarOrgMenu } from './app-sidebar-org-menu';
@@ -37,9 +39,10 @@ import { EmbucketLogo, EmbucketLogoText } from './logo';
 interface SidebarNavOption {
   name: string;
   linkProps: LinkProps;
-  options?: SidebarNavOption[];
   Icon: LucideIcon;
   disabled?: boolean;
+  onClick?: () => void;
+  isActive?: boolean;
 }
 
 const sidebarNavItems: SidebarNavOption[] = [
@@ -51,13 +54,6 @@ const sidebarNavItems: SidebarNavOption[] = [
     Icon: Home,
   },
   {
-    name: 'Data',
-    linkProps: {
-      to: '/data',
-    },
-    Icon: Database,
-  },
-  {
     name: 'Query History',
     linkProps: {
       to: '/query-history',
@@ -65,14 +61,12 @@ const sidebarNavItems: SidebarNavOption[] = [
     Icon: Activity,
   },
   {
-    name: 'SQL',
+    name: 'Data',
     linkProps: {
-      to: '/sql-editor/$worksheetId',
-      params: {
-        worksheetId: 'undefined',
-      },
+      to: '/data',
     },
-    Icon: SquareTerminal,
+    Icon: Database,
+    disabled: true,
   },
 ];
 
@@ -95,8 +89,88 @@ const helpNavItems: SidebarNavOption[] = [
   },
 ];
 
+function SidebarGroupComponent({ items, open }: { items: SidebarNavOption[]; open: boolean }) {
+  return (
+    <SidebarGroup>
+      <SidebarGroupContent className="px-0">
+        <SidebarMenu>
+          {items.map((item) => (
+            <SidebarMenuItem key={item.name}>
+              <Link
+                onClick={(e) => {
+                  if (item.onClick) {
+                    e.preventDefault();
+                    item.onClick();
+                  }
+                }}
+                to={item.linkProps.to}
+                params={item.linkProps.params}
+                disabled={item.disabled}
+                className="cursor-auto"
+              >
+                {({ isActive }) => (
+                  <SidebarMenuButton
+                    disabled={item.disabled}
+                    className={cn(!isActive && 'hover:bg-sidebar-secondary-accent!', 'text-nowrap')}
+                    tooltip={{
+                      children: item.name,
+                      hidden: open,
+                    }}
+                    isActive={isActive || item.isActive}
+                  >
+                    <item.Icon />
+                    {item.name}
+                  </SidebarMenuButton>
+                )}
+              </Link>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { open } = useSidebar();
+  const { data: { items: worksheets } = {}, isFetching: isFetchingWorksheets } = useGetWorksheets();
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+
+  const { mutateAsync, isPending } = useCreateWorksheet({
+    mutation: {
+      onSuccess: (worksheet) => {
+        queryClient.invalidateQueries({
+          queryKey: getGetWorksheetsQueryKey(),
+        });
+        navigate({
+          to: '/sql-editor/$worksheetId',
+          params: {
+            worksheetId: worksheet.id.toString(),
+          },
+        });
+      },
+    },
+  });
+
+  const handleCreateWorksheet = () => {
+    if (!worksheets?.length) {
+      mutateAsync({
+        data: {
+          name: '',
+          content: '',
+        },
+      });
+      return;
+    }
+    navigate({
+      to: '/sql-editor/$worksheetId',
+      params: {
+        worksheetId: worksheets[0]?.id.toString(),
+      },
+    });
+  };
 
   return (
     <Sidebar side="left" collapsible="icon" className="bg-muted h-auto rounded-md" {...props}>
@@ -120,64 +194,26 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent className="px-0">
-            <SidebarMenu>
-              {sidebarNavItems.map((item) => (
-                <SidebarMenuItem key={item.name}>
-                  <Link to={item.linkProps.to} className="cursor-auto">
-                    {({ isActive }) => (
-                      <SidebarMenuButton
-                        disabled={item.disabled}
-                        className={cn(
-                          !isActive && 'hover:bg-sidebar-secondary-accent!',
-                          'text-nowrap',
-                        )}
-                        tooltip={{
-                          children: item.name,
-                          hidden: open,
-                        }}
-                        isActive={isActive}
-                      >
-                        <item.Icon />
-                        {item.name}
-                      </SidebarMenuButton>
-                    )}
-                  </Link>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupContent className="px-0">
-            <SidebarMenu>
-              {helpNavItems.map((item) => (
-                <SidebarMenuItem key={item.name}>
-                  <Link to={item.linkProps.to} className="cursor-auto">
-                    {({ isActive }) => (
-                      <SidebarMenuButton
-                        disabled={item.disabled}
-                        className={cn(
-                          !isActive && 'hover:bg-sidebar-secondary-accent!',
-                          'text-nowrap',
-                        )}
-                        tooltip={{
-                          children: item.name,
-                          hidden: false,
-                        }}
-                        isActive={isActive}
-                      >
-                        <item.Icon />
-                        {item.name}
-                      </SidebarMenuButton>
-                    )}
-                  </Link>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        <SidebarGroupComponent items={sidebarNavItems} open={open} />
+        <SidebarGroupComponent
+          items={[
+            {
+              name: 'SQL',
+              linkProps: {
+                to: '/sql-editor/$worksheetId',
+                params: {
+                  worksheetId: worksheets?.[0]?.id.toString(),
+                },
+              },
+              Icon: SquareTerminal,
+              disabled: isFetchingWorksheets || isPending,
+              onClick: handleCreateWorksheet,
+              isActive: pathname.includes('/sql-editor'),
+            },
+          ]}
+          open={open}
+        />
+        <SidebarGroupComponent items={helpNavItems} open={open} />
         {!open && (
           <SidebarGroup>
             <SidebarGroupContent>
