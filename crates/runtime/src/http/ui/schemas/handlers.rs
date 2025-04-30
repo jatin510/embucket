@@ -70,10 +70,7 @@ pub async fn create_schema(
     Path(database_name): Path<String>,
     Json(payload): Json<SchemaCreatePayload>,
 ) -> SchemasResult<Json<SchemaCreateResponse>> {
-    let context = QueryContext {
-        database: Some(database_name.clone()),
-        schema: Some(payload.name.clone()),
-    };
+    let context = QueryContext::new(Some(database_name.clone()), Some(payload.name.clone()));
     let sql_string = format!(
         "CREATE SCHEMA {}.{}",
         database_name.clone(),
@@ -143,10 +140,7 @@ pub async fn delete_schema(
     State(state): State<AppState>,
     Path((database_name, schema_name)): Path<(String, String)>,
 ) -> SchemasResult<()> {
-    let context = QueryContext {
-        database: Some(database_name.clone()),
-        schema: Some(schema_name.clone()),
-    };
+    let context = QueryContext::new(Some(database_name.clone()), Some(schema_name.clone()));
     let sql_string = format!(
         "DROP SCHEMA {}.{}",
         database_name.clone(),

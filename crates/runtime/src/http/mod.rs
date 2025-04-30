@@ -18,7 +18,7 @@ use tower_sessions::{Expiry, SessionManagerLayer};
 use layers::make_cors_middleware;
 use session::{RequestSessionMemory, RequestSessionStore};
 
-use crate::execution::{self, service::ExecutionService};
+use crate::execution::{self, service::CoreExecutionService};
 
 pub mod error;
 
@@ -43,11 +43,11 @@ use super::http::config::WebConfig;
 #[allow(clippy::needless_pass_by_value)]
 pub fn make_app(
     metastore: Arc<dyn Metastore>,
-    history: Arc<dyn WorksheetsStore>,
+    history_store: Arc<dyn WorksheetsStore>,
     config: &WebConfig,
 ) -> Result<Router, Box<dyn std::error::Error>> {
     let execution_cfg = execution::utils::Config::new(&config.data_format)?;
-    let execution_svc = Arc::new(ExecutionService::new(metastore.clone(), execution_cfg));
+    let execution_svc = Arc::new(CoreExecutionService::new(metastore.clone(), execution_cfg));
 
     let session_memory = RequestSessionMemory::default();
     let session_store = RequestSessionStore::new(session_memory, execution_svc.clone());
@@ -63,8 +63,12 @@ pub fn make_app(
         .with_expiry(Expiry::OnInactivity(Duration::seconds(5 * 60)));
 
     // Create the application state
-    let app_state =
-        state::AppState::new(metastore, history, execution_svc, Arc::new(config.clone()));
+    let app_state = state::AppState::new(
+        metastore,
+        history_store,
+        execution_svc,
+        Arc::new(config.clone()),
+    );
 
     let mut app = router::create_app(app_state)
         .layer(session_layer)

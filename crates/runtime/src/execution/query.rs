@@ -56,6 +56,13 @@ pub struct QueryContext {
     pub schema: Option<String>,
 }
 
+impl QueryContext {
+    #[must_use]
+    pub const fn new(database: Option<String>, schema: Option<String>) -> Self {
+        Self { database, schema }
+    }
+}
+
 pub struct UserQuery {
     pub metastore: Arc<dyn Metastore>,
     pub raw_query: String,
