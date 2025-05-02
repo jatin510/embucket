@@ -8,6 +8,7 @@ mod date_diff;
 mod date_from_parts;
 //pub mod geospatial;
 mod parse_json;
+pub mod table;
 mod time_from_parts;
 mod timestamp_from_parts;
 

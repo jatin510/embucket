@@ -62,7 +62,6 @@ itertools = "0.14.0"
 mime_guess = "2.0.5"
 object_store = { workspace = true }
 
-
 paste = "1"
 regex = { version = "1.11.0" }
 serde = { workspace = true }
