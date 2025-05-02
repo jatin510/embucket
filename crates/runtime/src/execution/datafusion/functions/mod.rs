@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use datafusion::{common::Result, execution::FunctionRegistry, logical_expr::ScalarUDF};
 
+pub(crate) mod aggregate;
 mod convert_timezone;
 mod date_add;
 mod date_diff;
