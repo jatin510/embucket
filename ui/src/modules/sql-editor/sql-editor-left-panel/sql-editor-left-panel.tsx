@@ -20,8 +20,10 @@ import { SqlEditorLeftPanelWorksheets } from './sql-editor-left-panel-worksheets
 
 export const SqlEditorLeftPanel = () => {
   const selectedTree = useSqlEditorSettingsStore((state) => state.selectedTree);
-  const leftPanelTab = useSqlEditorSettingsStore((state) => state.leftPanelTab);
-  const setLeftPanelTab = useSqlEditorSettingsStore((state) => state.setLeftPanelTab);
+  const selectedLeftPanelTab = useSqlEditorSettingsStore((state) => state.selectedLeftPanelTab);
+  const setSelectedLeftPanelTab = useSqlEditorSettingsStore(
+    (state) => state.setSelectedLeftPanelTab,
+  );
 
   const {
     data: { items: worksheets } = {},
@@ -38,8 +40,8 @@ export const SqlEditorLeftPanel = () => {
       <Tabs
         defaultValue="worksheets"
         className="size-full gap-0 text-nowrap"
-        value={leftPanelTab}
-        onValueChange={(value) => setLeftPanelTab(value as LeftPanelTab)}
+        value={selectedLeftPanelTab}
+        onValueChange={(value) => setSelectedLeftPanelTab(value as LeftPanelTab)}
       >
         {/* Tabs */}
         <SidebarHeader className="p-4 pb-0">
