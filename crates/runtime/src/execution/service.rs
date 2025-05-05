@@ -25,7 +25,7 @@ use super::error::{self as ex_error, ExecutionError, ExecutionResult};
 
 #[async_trait::async_trait]
 pub trait ExecutionService: Send + Sync {
-    async fn create_session(&self, session_id: String) -> ExecutionResult<()>;
+    async fn create_session(&self, session_id: String) -> ExecutionResult<Arc<UserSession>>;
     async fn delete_session(&self, session_id: String) -> ExecutionResult<()>;
     async fn query(
         &self,
@@ -63,16 +63,21 @@ impl CoreExecutionService {
 #[async_trait::async_trait]
 impl ExecutionService for CoreExecutionService {
     #[tracing::instrument(level = "debug", skip(self))]
-    async fn create_session(&self, session_id: String) -> ExecutionResult<()> {
-        let session_exists = { self.df_sessions.read().await.contains_key(&session_id) };
-        if !session_exists {
-            let user_session = UserSession::new(self.metastore.clone()).await?;
-            tracing::trace!("Acuiring write lock for df_sessions");
-            let mut session_list_mut = self.df_sessions.write().await;
-            tracing::trace!("Acquired write lock for df_sessions");
-            session_list_mut.insert(session_id, Arc::new(user_session));
+    async fn create_session(&self, session_id: String) -> ExecutionResult<Arc<UserSession>> {
+        {
+            let sessions = self.df_sessions.read().await;
+            if let Some(session) = sessions.get(&session_id) {
+                return Ok(session.clone());
+            }
         }
-        Ok(())
+        let user_session = Arc::new(UserSession::new(self.metastore.clone()).await?);
+        {
+            tracing::trace!("Acquiring write lock for df_sessions");
+            let mut sessions = self.df_sessions.write().await;
+            tracing::trace!("Acquired write lock for df_sessions");
+            sessions.insert(session_id.clone(), user_session.clone());
+        }
+        Ok(user_session)
     }
 
     #[tracing::instrument(level = "debug", skip(self))]

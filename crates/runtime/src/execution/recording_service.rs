@@ -2,6 +2,7 @@ use crate::execution::error::ExecutionResult;
 use crate::execution::models::ColumnInfo;
 use crate::execution::query::QueryContext;
 use crate::execution::service::ExecutionService;
+use crate::execution::session::UserSession;
 use crate::execution::utils::Config;
 use crate::http::ui::queries::models::ResultSet;
 use arrow::csv::reader::Format;
@@ -25,7 +26,7 @@ impl RecordingExecutionService {
 
 #[async_trait::async_trait]
 impl ExecutionService for RecordingExecutionService {
-    async fn create_session(&self, session_id: String) -> ExecutionResult<()> {
+    async fn create_session(&self, session_id: String) -> ExecutionResult<Arc<UserSession>> {
         self.execution.create_session(session_id).await
     }
 
@@ -76,7 +77,6 @@ impl ExecutionService for RecordingExecutionService {
         }
         query_res
     }
-
     async fn upload_data_to_table(
         &self,
         session_id: &str,
