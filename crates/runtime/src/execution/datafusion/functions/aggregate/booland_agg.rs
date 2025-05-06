@@ -1,13 +1,10 @@
 use crate::execution::datafusion::functions::aggregate::macros::make_udaf_function;
-use arrow_array::{
-    ArrayRef, BooleanArray, Decimal128Array, Float32Array, Float64Array, Int16Array, Int32Array,
-    Int64Array, Int8Array, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
-};
+use crate::execution::datafusion::functions::array_to_boolean;
+use arrow_array::ArrayRef;
 use arrow_schema::DataType;
-use datafusion::common::DataFusionError;
 use datafusion::error::Result as DFResult;
 use datafusion::logical_expr::Accumulator;
-use datafusion_common::{downcast_value, ScalarValue};
+use datafusion_common::ScalarValue;
 use datafusion_expr::function::AccumulatorArgs;
 use datafusion_expr::{AggregateUDFImpl, Signature, Volatility};
 use std::any::Any;
@@ -134,44 +131,12 @@ impl Accumulator for BoolAndAggAccumulator {
     }
 }
 
-pub fn array_to_boolean(arr: &ArrayRef) -> DFResult<BooleanArray> {
-    let arr = arr.as_ref();
-    let mut boolean_array = BooleanArray::builder(arr.len());
-    for i in 0..arr.len() {
-        if arr.is_null(i) {
-            boolean_array.append_null();
-        } else {
-            let b = match arr.data_type() {
-                DataType::Boolean => downcast_value!(arr, BooleanArray).value(i),
-                DataType::Int8 => downcast_value!(arr, Int8Array).value(i) != 0,
-                DataType::Int16 => downcast_value!(arr, Int16Array).value(i) != 0,
-                DataType::Int32 => downcast_value!(arr, Int32Array).value(i) != 0,
-                DataType::Int64 => downcast_value!(arr, Int64Array).value(i) != 0,
-                DataType::UInt8 => downcast_value!(arr, UInt8Array).value(i) != 0,
-                DataType::UInt16 => downcast_value!(arr, UInt16Array).value(i) != 0,
-                DataType::UInt32 => downcast_value!(arr, UInt32Array).value(i) != 0,
-                DataType::UInt64 => downcast_value!(arr, UInt64Array).value(i) != 0,
-                DataType::Float32 => downcast_value!(arr, Float32Array).value(i) != 0.,
-                DataType::Float64 => downcast_value!(arr, Float64Array).value(i) != 0.,
-                DataType::Decimal128(_, _) => downcast_value!(arr, Decimal128Array).value(i) != 0,
-                _ => {
-                    return Err(DataFusionError::Internal(
-                        "only supports boolean, numeric, decimal, float types".to_string(),
-                    ))
-                }
-            };
-
-            boolean_array.append_value(b);
-        }
-    }
-    Ok(boolean_array.finish())
-}
-
 make_udaf_function!(BoolAndAggUDAF);
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arrow_array::BooleanArray;
     use datafusion::prelude::{SessionConfig, SessionContext};
     use datafusion_common::assert_batches_eq;
     use datafusion_expr::AggregateUDF;
