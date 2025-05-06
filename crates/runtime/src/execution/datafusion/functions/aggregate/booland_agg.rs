@@ -134,7 +134,7 @@ impl Accumulator for BoolAndAggAccumulator {
     }
 }
 
-fn array_to_boolean(arr: &ArrayRef) -> DFResult<BooleanArray> {
+pub fn array_to_boolean(arr: &ArrayRef) -> DFResult<BooleanArray> {
     let arr = arr.as_ref();
     let mut boolean_array = BooleanArray::builder(arr.len());
     for i in 0..arr.len() {
