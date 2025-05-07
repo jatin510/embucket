@@ -7,8 +7,6 @@ use validator::Validate;
 #[serde(rename_all = "camelCase")]
 pub struct NavigationTreesResponse {
     pub items: Vec<NavigationTreeDatabase>,
-    pub current_cursor: Option<String>,
-    pub next_cursor: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Validate, ToSchema)]
@@ -33,7 +31,7 @@ pub struct NavigationTreeTable {
 
 #[derive(Debug, Deserialize, ToSchema, IntoParams)]
 pub struct NavigationTreesParameters {
-    pub cursor: Option<String>,
+    pub offset: Option<usize>,
     #[serde(default = "default_limit")]
     pub limit: Option<u16>,
 }

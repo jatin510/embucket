@@ -1,14 +1,18 @@
+use crate::execution::error::ExecutionError;
+use crate::execution::query::QueryContext;
 use crate::http::error::ErrorResponse;
+use crate::http::session::DFSessionId;
 use crate::http::state::AppState;
 use crate::http::ui::navigation_trees::error::{NavigationTreesAPIError, NavigationTreesResult};
 use crate::http::ui::navigation_trees::models::{
     NavigationTreeDatabase, NavigationTreeSchema, NavigationTreeTable, NavigationTreesParameters,
     NavigationTreesResponse,
 };
+use arrow_array::{RecordBatch, StringArray};
 use axum::extract::Query;
 use axum::{extract::State, Json};
-use embucket_metastore::error::MetastoreError;
-use embucket_utils::scan_iterator::ScanIterator;
+use datafusion_common::DataFusionError;
+use std::collections::BTreeMap;
 use utoipa::OpenApi;
 
 #[derive(OpenApi)]
@@ -35,8 +39,8 @@ pub struct ApiDoc;
     get,
     operation_id = "getNavigationTrees",
     params(
-        ("cursor" = Option<String>, Query, description = "Navigation trees cursor"),
-        ("limit" = Option<usize>, Query, description = "Navigation trees limit"),
+        ("offset" = Option<usize>, Query, description = "Navigation trees offset"),
+        ("limit" = Option<u16>, Query, description = "Navigation trees limit"),
     ),
     tags = ["navigation-trees"],
     path = "/ui/navigation-trees",
@@ -45,69 +49,77 @@ pub struct ApiDoc;
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
-#[tracing::instrument(level = "debug", skip(state), err, ret(level = tracing::Level::TRACE))]
 pub async fn get_navigation_trees(
-    Query(parameters): Query<NavigationTreesParameters>,
+    DFSessionId(session_id): DFSessionId,
+    Query(params): Query<NavigationTreesParameters>,
     State(state): State<AppState>,
 ) -> NavigationTreesResult<Json<NavigationTreesResponse>> {
-    let rw_databases = state
-        .metastore
-        .iter_databases()
-        .cursor(parameters.cursor.clone())
-        .limit(parameters.limit)
-        .collect()
+    let (batches, _) = state
+        .execution_svc
+        .query(
+            &session_id,
+            "SELECT table_catalog, table_schema, table_name FROM information_schema.tables",
+            QueryContext::default(),
+        )
         .await
-        .map_err(|e| NavigationTreesAPIError::Get {
-            source: MetastoreError::UtilSlateDB { source: e },
-        })?;
+        .map_err(|e| NavigationTreesAPIError::Execution { source: e })?;
 
-    let next_cursor = rw_databases
-        .iter()
-        .last()
-        .map_or(String::new(), |rw_object| rw_object.ident.clone());
+    let mut catalogs_tree: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
 
-    let mut databases: Vec<NavigationTreeDatabase> = vec![];
-    for rw_database in rw_databases {
-        let rw_schemas = state
-            .metastore
-            .iter_schemas(&rw_database.ident.clone())
-            .collect()
-            .await
-            .map_err(|e| NavigationTreesAPIError::Get {
-                source: MetastoreError::UtilSlateDB { source: e },
-            })?;
+    for batch in batches {
+        let catalog_col = downcast_string_column(&batch, "table_catalog")?;
+        let schema_col = downcast_string_column(&batch, "table_schema")?;
+        let name_col = downcast_string_column(&batch, "table_name")?;
 
-        let mut schemas: Vec<NavigationTreeSchema> = vec![];
-        for rw_schema in rw_schemas {
-            let rw_tables = state
-                .metastore
-                .iter_tables(&rw_schema.ident)
-                .collect()
-                .await
-                .map_err(|e| NavigationTreesAPIError::Get {
-                    source: MetastoreError::UtilSlateDB { source: e },
-                })?;
+        for i in 0..batch.num_rows() {
+            let catalog = catalog_col.value(i).to_string();
+            let schema = schema_col.value(i).to_string();
+            let name = name_col.value(i).to_string();
 
-            let mut tables: Vec<NavigationTreeTable> = vec![];
-            for rw_table in rw_tables {
-                tables.push(NavigationTreeTable {
-                    name: rw_table.ident.table.clone(),
-                });
-            }
-            schemas.push(NavigationTreeSchema {
-                name: rw_schema.ident.schema.clone(),
-                tables,
-            });
+            catalogs_tree
+                .entry(catalog)
+                .or_default()
+                .entry(schema)
+                .or_default()
+                .push(name);
         }
-        databases.push(NavigationTreeDatabase {
-            name: rw_database.ident.clone(),
-            schemas,
-        });
     }
 
-    Ok(Json(NavigationTreesResponse {
-        items: databases,
-        current_cursor: parameters.cursor,
-        next_cursor,
-    }))
+    let offset = params.offset.unwrap_or(0);
+    let limit = params.limit.map_or(usize::MAX, usize::from);
+
+    let items = catalogs_tree
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(|(catalog_name, schemas_map)| NavigationTreeDatabase {
+            name: catalog_name,
+            schemas: schemas_map
+                .into_iter()
+                .map(|(schema_name, table_names)| NavigationTreeSchema {
+                    name: schema_name,
+                    tables: table_names
+                        .into_iter()
+                        .map(|name| NavigationTreeTable { name })
+                        .collect(),
+                })
+                .collect(),
+        })
+        .collect();
+
+    Ok(Json(NavigationTreesResponse { items }))
+}
+
+fn downcast_string_column<'a>(
+    batch: &'a RecordBatch,
+    name: &str,
+) -> Result<&'a StringArray, NavigationTreesAPIError> {
+    batch
+        .column_by_name(name)
+        .and_then(|col| col.as_any().downcast_ref::<StringArray>())
+        .ok_or_else(|| NavigationTreesAPIError::Execution {
+            source: ExecutionError::DataFusion {
+                source: DataFusionError::Internal(format!("Missing or invalid column: '{name}'")),
+            },
+        })
 }
