@@ -38,9 +38,70 @@ use datafusion_expr::sqlparser::ast::{
     Statement, VisitorMut,
 };
 use sqlparser::ast::Value::SingleQuotedString;
+use strum_macros::Display;
 
 #[derive(Debug, Default)]
 pub struct FunctionsRewriter {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
+#[strum(serialize_all = "snake_case")]
+pub enum DateTimeFunction {
+    Year,
+    Day,
+    DayOfMonth,
+    DayOfWeek,
+    DayOfWeekIso,
+    DayOfYear,
+    Week,
+    WeekOfYear,
+    WeekIso,
+    Month,
+    Quarter,
+    Hour,
+    Minute,
+    Second,
+}
+
+impl DateTimeFunction {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "year" => Some(Self::Year),
+            "day" => Some(Self::Day),
+            "dayofmonth" => Some(Self::DayOfMonth),
+            "dayofweek" => Some(Self::DayOfWeek),
+            "dayofweekiso" => Some(Self::DayOfWeekIso),
+            "dayofyear" => Some(Self::DayOfYear),
+            "week" => Some(Self::Week),
+            "weekofyear" => Some(Self::WeekOfYear),
+            "weekiso" => Some(Self::WeekIso),
+            "month" => Some(Self::Month),
+            "quarter" => Some(Self::Quarter),
+            "hour" => Some(Self::Hour),
+            "minute" => Some(Self::Minute),
+            "second" => Some(Self::Second),
+            _ => None,
+        }
+    }
+
+    pub fn to_date_part(&self) -> &'static str {
+        match self {
+            Self::Year
+            | Self::Quarter
+            | Self::Month
+            | Self::Week
+            | Self::Day
+            | Self::Hour
+            | Self::Minute
+            | Self::Second => self.to_string().as_str(),
+            Self::DayOfYear => "doy",
+            Self::DayOfWeek => "dow",
+            Self::DayOfMonth => "day",
+            Self::WeekOfYear => "week",
+            Self::DayOfWeekIso => "dow",
+            Self::WeekIso => "week",
+        }
+    }
+}
 
 impl VisitorMut for FunctionsRewriter {
     type Break = ();
@@ -51,25 +112,16 @@ impl VisitorMut for FunctionsRewriter {
             let func_name = func_name_string.as_str();
             let args = &mut func.args;
             let name = match func_name {
-                "year" | "day" | "dayofmonth" | "dayofweek" | "dayofweekiso" | "dayofyear"
-                | "week" | "weekofyear" | "weekiso" | "month" | "quarter" | "hour" | "minute"
-                | "second" => {
+                name if DateTimeFunction::from_str(name).is_some() => {
                     if let FunctionArguments::List(arg_list) = args {
-                        let arg = match func_name {
-                            "year" | "quarter" | "month" | "week" | "day" | "hour" | "minute"
-                            | "second" => func_name,
-                            "dayofyear" => "doy",
-                            "dayofweek" => "dow",
-                            "dayofmonth" => "day",
-                            "weekofyear" => "week",
-                            _ => "unknown",
-                        };
-                        arg_list.args.insert(
-                            0,
-                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
-                                SingleQuotedString(arg.to_string()).into(),
-                            ))),
-                        );
+                        if let Some(func) = DateTimeFunction::from_str(name) {
+                            arg_list.args.insert(
+                                0,
+                                FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                                    SingleQuotedString(func.to_date_part().to_string()).into(),
+                                ))),
+                            );
+                        }
                     }
                     "date_part"
                 }

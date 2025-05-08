@@ -6,10 +6,7 @@ license-file = { workspace = true }
 
 [dependencies]
 
-arrow = { version = "55.0.0",features = [
-  "prettyprint",
-  "chrono-tz",
-]  }
+arrow = { version = "55.0.0", features = ["prettyprint", "chrono-tz"] }
 arrow-array = { version = "55.0.0" }
 arrow-json = { version = "55.0.0" }
 arrow-schema = { version = "55.0.0", default-features = false }
@@ -37,13 +34,15 @@ geo-traits = { version = "0.2.0" }
 geo-types = { version = "0.7.15" }
 
 aws-config = { version = "1.5.17" }
-aws-credential-types = { version = "1.2.1",  features = ["hardcoded-credentials"]}
-geoarrow = { git = "https://github.com/geoarrow/geoarrow-rs.git" , package = "geoarrow", rev = "c241034f98eb1709342fc8da6d2cb87140f10cc5" }
-geoarrow-array = { git = "https://github.com/geoarrow/geoarrow-rs.git" , package = "geoarrow-array", rev = "c241034f98eb1709342fc8da6d2cb87140f10cc5" }
-geoarrow-cast = { git = "https://github.com/geoarrow/geoarrow-rs.git" , package = "geoarrow-cast", rev = "c241034f98eb1709342fc8da6d2cb87140f10cc5" }
-geoarrow-geoparquet = { git = "https://github.com/geoarrow/geoarrow-rs.git" , package = "geoarrow-geoparquet", rev = "c241034f98eb1709342fc8da6d2cb87140f10cc5" }
-geoarrow-schema = { git = "https://github.com/geoarrow/geoarrow-rs.git" , package = "geoarrow-schema", rev = "c241034f98eb1709342fc8da6d2cb87140f10cc5" }
-geoarrow-test = { git = "https://github.com/geoarrow/geoarrow-rs.git" , package = "geoarrow-test", rev = "c241034f98eb1709342fc8da6d2cb87140f10cc5" }
+aws-credential-types = { version = "1.2.1", features = [
+  "hardcoded-credentials",
+] }
+geoarrow = { git = "https://github.com/geoarrow/geoarrow-rs.git", package = "geoarrow", rev = "c241034f98eb1709342fc8da6d2cb87140f10cc5" }
+geoarrow-array = { git = "https://github.com/geoarrow/geoarrow-rs.git", package = "geoarrow-array", rev = "c241034f98eb1709342fc8da6d2cb87140f10cc5" }
+geoarrow-cast = { git = "https://github.com/geoarrow/geoarrow-rs.git", package = "geoarrow-cast", rev = "c241034f98eb1709342fc8da6d2cb87140f10cc5" }
+geoarrow-geoparquet = { git = "https://github.com/geoarrow/geoarrow-rs.git", package = "geoarrow-geoparquet", rev = "c241034f98eb1709342fc8da6d2cb87140f10cc5" }
+geoarrow-schema = { git = "https://github.com/geoarrow/geoarrow-rs.git", package = "geoarrow-schema", rev = "c241034f98eb1709342fc8da6d2cb87140f10cc5" }
+geoarrow-test = { git = "https://github.com/geoarrow/geoarrow-rs.git", package = "geoarrow-test", rev = "c241034f98eb1709342fc8da6d2cb87140f10cc5" }
 geodatafusion = { git = "https://github.com/geoarrow/geoarrow-rs.git", package = "geodatafusion", rev = "c241034f98eb1709342fc8da6d2cb87140f10cc5" }
 geohash = { version = "0.13.1" }
 geozero = { version = "0.14.0" }
@@ -74,6 +73,7 @@ sqlparser = { git = "https://github.com/Embucket/datafusion-sqlparser-rs.git", r
   "visitor",
 ] }
 strum = { version = "0.27.1", features = ["derive"] }
+strum_macros = "0.27.1"
 
 swagger = { version = "6.1", features = [
   "serdejson",
@@ -114,4 +114,3 @@ workspace = true
 [dev-dependencies]
 insta = { version = "1.42.0", features = ["yaml", "filters"] }
 reqwest = "0.12.14"
-
