@@ -1,0 +1,25 @@
+[package]
+name = "api-snowflake-rest"
+version = "0.1.0"
+edition = "2024"
+license-file.workspace = true
+
+[dependencies]
+api-sessions = { path = "../api-sessions" }
+core-metastore = { path = "../core-metastore" }
+core-executor = { path = "../core-executor" }
+
+axum = { workspace = true }
+flate2 = "1"
+regex = { workspace = true }
+base64 = "0.22"
+indexmap = { workspace = true }
+datafusion = { workspace = true }
+snafu = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true
