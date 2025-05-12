@@ -186,8 +186,6 @@ pub async fn login(
     let audience = state.config.host.clone();
     let jwt_secret = state.auth_config.jwt_secret();
 
-    ensure_jwt_secret_is_valid(jwt_secret)?;
-
     let access_token_claims = access_token_claims(&username, &audience);
 
     let access_token = create_jwt(&access_token_claims, jwt_secret).context(CreateJwtSnafu)?;
