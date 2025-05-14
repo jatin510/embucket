@@ -50,3 +50,23 @@ SELECT $max;
 ----
 80
 
+# Test selecting an unset session variable (should error)
+
+statement error
+SELECT $undefined_var;
+----
+002211 (02000): SQL compilation error: error line 1 at position 7
+Session variable '$UNDEFINED_VAR' does not exist
+
+# Test reassigning a session variable to a new type
+
+statement ok
+SET var1 = 100;
+
+statement ok
+SET var1 = 'changed';
+
+query T
+SELECT $var1;
+----
+changed

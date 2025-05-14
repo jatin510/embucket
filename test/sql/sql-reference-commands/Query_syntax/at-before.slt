@@ -47,3 +47,4 @@ SELECT oldt.c1, oldt.c2, newt.c1, newt.c2
   WHERE oldt.c1 IS NULL OR newt.c1 IS NULL;
 ----
 NULL	NULL	4	5
+
