@@ -22,6 +22,8 @@ mod boolor;
 mod boolxor;
 mod equal_null;
 mod iff;
+mod is_array;
+mod is_object;
 mod nullifzero;
 mod parse_json;
 pub mod table;
