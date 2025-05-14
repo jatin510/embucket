@@ -4,8 +4,8 @@ use crate::{
     error::ErrorResponse,
     volumes::error::{VolumesAPIError, VolumesResult},
     volumes::models::{
-        VolumeCreatePayload, VolumeCreateResponse, VolumeResponse, VolumeUpdatePayload,
-        VolumeUpdateResponse, VolumesResponse,
+        FileVolume, S3TablesVolume, S3Volume, Volume, VolumeCreatePayload, VolumeCreateResponse,
+        VolumeResponse, VolumeType, VolumeUpdatePayload, VolumeUpdateResponse, VolumesResponse,
     },
 };
 use axum::{
@@ -13,7 +13,7 @@ use axum::{
     extract::{Path, Query, State},
 };
 use core_metastore::error::MetastoreError;
-use core_metastore::models::Volume as MetastoreVolume;
+use core_metastore::models::{AwsAccessKeyCredentials, AwsCredentials, Volume as MetastoreVolume};
 use core_utils::scan_iterator::ScanIterator;
 use utoipa::OpenApi;
 use validator::Validate;
@@ -21,15 +21,23 @@ use validator::Validate;
 #[derive(OpenApi)]
 #[openapi(
     paths(
-        // create_volume,
+        create_volume,
         get_volume,
-        // delete_volume,
+        delete_volume,
         list_volumes,
         // update_volume,
     ),
     components(
         schemas(
-            // VolumePayload,
+            VolumeCreatePayload,
+            VolumeCreateResponse,
+            Volume,
+            VolumeType,
+            S3Volume,
+            S3TablesVolume,
+            FileVolume,
+            AwsCredentials,
+            AwsAccessKeyCredentials,
             VolumeResponse,
             VolumesResponse,
             ErrorResponse,
