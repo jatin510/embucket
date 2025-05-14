@@ -29,7 +29,7 @@ export function SqlEditorCenterBottomPanel({
 
   return (
     <>
-      {isIdle && !queryRecord && (
+      {(isIdle || !queryRecord) && (
         <EmptyContainer
           Icon={TextSearch}
           title="No Results Yet"
