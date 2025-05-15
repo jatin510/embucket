@@ -1,4 +1,5 @@
 use crate::catalogs::slatedb::databases::DatabasesViewBuilder;
+use crate::catalogs::slatedb::schemas::SchemasViewBuilder;
 use crate::catalogs::slatedb::volumes::VolumesViewBuilder;
 use core_metastore::Metastore;
 use core_utils::scan_iterator::ScanIterator;
@@ -40,6 +41,26 @@ impl SlateDBViewConfig {
             .map_err(|e| DataFusionError::Execution(format!("failed to get databases: {e}")))?;
         for database in databases {
             builder.add_database(database.ident.as_str(), &database.volume);
+        }
+        Ok(())
+    }
+    pub async fn make_schemas(
+        &self,
+        builder: &mut SchemasViewBuilder,
+    ) -> datafusion_common::Result<(), DataFusionError> {
+        let schemas = self
+            .metastore
+            .iter_schemas(&String::new())
+            .collect()
+            .await
+            .map_err(|e| DataFusionError::Execution(format!("failed to get schemas: {e}")))?;
+        for schema in schemas {
+            builder.add_schema(
+                &schema.ident.schema,
+                &schema.ident.database,
+                schema.created_at.to_string(),
+                schema.updated_at.to_string(),
+            );
         }
         Ok(())
     }

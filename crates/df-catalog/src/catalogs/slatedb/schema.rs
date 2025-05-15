@@ -1,5 +1,6 @@
 use crate::catalogs::slatedb::config::SlateDBViewConfig;
 use crate::catalogs::slatedb::databases::DatabasesView;
+use crate::catalogs::slatedb::schemas::SchemasView;
 use crate::catalogs::slatedb::volumes::VolumesView;
 use async_trait::async_trait;
 use core_metastore::Metastore;
@@ -14,8 +15,9 @@ pub const SLATEDB_SCHEMA: &str = "public";
 pub const SLATEDB_CATALOG: &str = "slatedb";
 pub const DATABASES: &str = "databases";
 pub const VOLUMES: &str = "volumes";
+pub const SCHEMAS: &str = "schemas";
 
-pub const VIEW_TABLES: &[&str] = &[DATABASES, VOLUMES];
+pub const VIEW_TABLES: &[&str] = &[SCHEMAS, DATABASES, VOLUMES];
 
 pub struct SlateDBViewSchemaProvider {
     config: SlateDBViewConfig,
@@ -54,6 +56,7 @@ impl SchemaProvider for SlateDBViewSchemaProvider {
         let table: Arc<dyn PartitionStream> = match name.to_ascii_lowercase().as_str() {
             DATABASES => Arc::new(DatabasesView::new(config)),
             VOLUMES => Arc::new(VolumesView::new(config)),
+            SCHEMAS => Arc::new(SchemasView::new(config)),
             _ => return Ok(None),
         };
 
