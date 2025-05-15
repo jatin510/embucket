@@ -17,6 +17,7 @@ mod date_add;
 mod date_diff;
 mod date_from_parts;
 //pub mod geospatial;
+mod array_flatten;
 mod booland;
 mod boolor;
 mod boolxor;
@@ -49,6 +50,7 @@ pub fn register_udfs(registry: &mut dyn FunctionRegistry) -> Result<()> {
         nullifzero::get_udf(),
         is_object::get_udf(),
         is_array::get_udf(),
+        array_flatten::get_udf(),
         Arc::new(ScalarUDF::from(ToBooleanFunc::new(false))),
         Arc::new(ScalarUDF::from(ToBooleanFunc::new(true))),
         Arc::new(ScalarUDF::from(ToTimeFunc::new(false))),
