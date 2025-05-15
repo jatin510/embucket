@@ -3,6 +3,14 @@ use datafusion::arrow::datatypes::{DataType, Field, TimeUnit};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Debug)]
+pub struct QueryResultData {
+    pub records: Vec<RecordBatch>,
+    pub columns_info: Vec<ColumnInfo>,
+    // query_id is QueryRecordId, but we won't add dependency on history crate here
+    pub query_id: i64,
+}
+
 // TODO: We should not have serde dependency here
 // Instead it should be in api-snowflake-rest
 #[derive(Debug, Serialize, Deserialize, Clone)]

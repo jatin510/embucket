@@ -35,6 +35,9 @@ pub enum WorksheetsStoreError {
     #[snafu(display("Error adding query record: {source}"))]
     QueryAdd { source: core_utils::Error },
 
+    #[snafu(display("Can't locate query record by key: {key}"))]
+    QueryNotFound { key: String },
+
     #[snafu(display("Error adding query record reference: {source}"))]
     QueryReferenceAdd { source: core_utils::Error },
 
@@ -124,6 +127,7 @@ pub trait WorksheetsStore: std::fmt::Debug + Send + Sync {
     async fn get_worksheets(&self) -> WorksheetsStoreResult<Vec<Worksheet>>;
 
     async fn add_query(&self, item: &QueryRecord) -> WorksheetsStoreResult<()>;
+    async fn get_query(&self, id: QueryRecordId) -> WorksheetsStoreResult<QueryRecord>;
     async fn get_queries(&self, params: GetQueries) -> WorksheetsStoreResult<Vec<QueryRecord>>;
 }
 
@@ -233,6 +237,16 @@ impl WorksheetsStore for SlateDBWorksheetsStore {
             .context(QueryAddSnafu)?)
     }
 
+    async fn get_query(&self, id: QueryRecordId) -> WorksheetsStoreResult<QueryRecord> {
+        let key_bytes = QueryRecord::get_key(id);
+        let key_str = std::str::from_utf8(key_bytes.as_ref()).context(BadKeySnafu)?;
+
+        let res: Option<QueryRecord> = self.db.get(key_str).await.context(QueryGetSnafu)?;
+        res.ok_or_else(|| WorksheetsStoreError::QueryNotFound {
+            key: key_str.to_string(),
+        })
+    }
+
     async fn get_queries(&self, params: GetQueries) -> WorksheetsStoreResult<Vec<QueryRecord>> {
         let GetQueries {
             worksheet_id,
@@ -300,7 +314,7 @@ mod tests {
     fn create_query_records(templates: &[(Option<i64>, QueryStatus)]) -> Vec<QueryRecord> {
         let mut created: Vec<QueryRecord> = vec![];
         for (i, (worksheet_id, query_status)) in templates.iter().enumerate() {
-            let ctx = MockQueryRecordActions::query_start_context();
+            let ctx = MockExecutionQueryRecord::query_start_context();
             ctx.expect().returning(move |query, worksheet_id| {
                 let start_time = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap()
                     + Duration::milliseconds(
@@ -320,12 +334,12 @@ mod tests {
                 }
             });
             let query_record = match query_status {
-                QueryStatus::Running => MockQueryRecordActions::query_start(
+                QueryStatus::Running => MockExecutionQueryRecord::query_start(
                     format!("select {i}").as_str(),
                     *worksheet_id,
                 ),
                 QueryStatus::Successful => {
-                    let mut item = MockQueryRecordActions::query_start(
+                    let mut item = MockExecutionQueryRecord::query_start(
                         format!("select {i}").as_str(),
                         *worksheet_id,
                     );
@@ -333,7 +347,7 @@ mod tests {
                     item
                 }
                 QueryStatus::Failed => {
-                    let mut item = MockQueryRecordActions::query_start(
+                    let mut item = MockExecutionQueryRecord::query_start(
                         format!("select {i}").as_str(),
                         *worksheet_id,
                     );

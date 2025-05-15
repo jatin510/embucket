@@ -14,6 +14,7 @@ use snafu::ResultExt;
 use super::error::{self as ex_error, ExecutionError, ExecutionResult};
 use super::{
     models::ColumnInfo,
+    models::QueryResultData,
     query::QueryContext,
     session::UserSession,
     utils::{Config, convert_record_batches},
@@ -23,7 +24,6 @@ use core_metastore::{Metastore, SlateDBMetastore, TableIdent as MetastoreTableId
 use core_utils::Db;
 use tokio::sync::RwLock;
 use uuid::Uuid;
-
 #[async_trait::async_trait]
 pub trait ExecutionService: Send + Sync {
     async fn create_session(&self, session_id: String) -> ExecutionResult<Arc<UserSession>>;
@@ -33,7 +33,7 @@ pub trait ExecutionService: Send + Sync {
         session_id: &str,
         query: &str,
         query_context: QueryContext,
-    ) -> ExecutionResult<(Vec<RecordBatch>, Vec<ColumnInfo>)>;
+    ) -> ExecutionResult<QueryResultData>;
     async fn upload_data_to_table(
         &self,
         session_id: &str,
@@ -61,6 +61,7 @@ impl CoreExecutionService {
         }
     }
 }
+
 #[async_trait::async_trait]
 impl ExecutionService for CoreExecutionService {
     #[tracing::instrument(level = "debug", skip(self))]
@@ -96,7 +97,7 @@ impl ExecutionService for CoreExecutionService {
         session_id: &str,
         query: &str,
         query_context: QueryContext,
-    ) -> ExecutionResult<(Vec<RecordBatch>, Vec<ColumnInfo>)> {
+    ) -> ExecutionResult<QueryResultData> {
         let sessions = self.df_sessions.read().await;
         let user_session =
             sessions
@@ -117,7 +118,7 @@ impl ExecutionService for CoreExecutionService {
             .context(ex_error::DataFusionQuerySnafu { query })?;
 
         // TODO: Perhaps it's better to return a schema as a result of `execute` method
-        let columns = if columns.is_empty() {
+        let columns_info = if columns.is_empty() {
             query_obj
                 .get_custom_logical_plan(&query_obj.query)
                 .await?
@@ -130,7 +131,11 @@ impl ExecutionService for CoreExecutionService {
             columns
         };
 
-        Ok((records, columns))
+        Ok(QueryResultData {
+            records,
+            columns_info,
+            query_id: i64::default(), // default value for query_id is meaningless,
+        })
     }
 
     #[tracing::instrument(level = "debug", skip(self, data))]
