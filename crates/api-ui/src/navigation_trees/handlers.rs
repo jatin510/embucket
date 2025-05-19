@@ -1,3 +1,4 @@
+use crate::downcast_string_column;
 use crate::error::ErrorResponse;
 use crate::navigation_trees::error::{NavigationTreesAPIError, NavigationTreesResult};
 use crate::navigation_trees::models::{
@@ -8,9 +9,7 @@ use crate::state::AppState;
 use api_sessions::DFSessionId;
 use axum::extract::Query;
 use axum::{Json, extract::State};
-use core_executor::{error::ExecutionError, models::QueryResultData, query::QueryContext};
-use datafusion::arrow::array::{RecordBatch, StringArray};
-use datafusion::common::DataFusionError;
+use core_executor::{models::QueryResultData, query::QueryContext};
 use std::collections::BTreeMap;
 use utoipa::OpenApi;
 
@@ -76,11 +75,14 @@ pub async fn get_navigation_trees(
         BTreeMap::new();
 
     for batch in tree_batches {
-        let databases = downcast_string_column(&batch, "database")?;
-        let schemas = downcast_string_column(&batch, "schema")?;
-        let tables = downcast_string_column(&batch, "table")?;
-        let table_types = downcast_string_column(&batch, "table_type")?;
-
+        let databases = downcast_string_column(&batch, "database")
+            .map_err(|e| NavigationTreesAPIError::Execution { source: e })?;
+        let schemas = downcast_string_column(&batch, "schema")
+            .map_err(|e| NavigationTreesAPIError::Execution { source: e })?;
+        let tables = downcast_string_column(&batch, "table")
+            .map_err(|e| NavigationTreesAPIError::Execution { source: e })?;
+        let table_types = downcast_string_column(&batch, "table_type")
+            .map_err(|e| NavigationTreesAPIError::Execution { source: e })?;
         for j in 0..batch.num_rows() {
             let database = databases.value(j).to_string();
             let schema = schemas.value(j).to_string();
@@ -132,18 +134,4 @@ pub async fn get_navigation_trees(
         .collect();
 
     Ok(Json(NavigationTreesResponse { items }))
-}
-
-fn downcast_string_column<'a>(
-    batch: &'a RecordBatch,
-    name: &str,
-) -> Result<&'a StringArray, NavigationTreesAPIError> {
-    batch
-        .column_by_name(name)
-        .and_then(|col| col.as_any().downcast_ref::<StringArray>())
-        .ok_or_else(|| NavigationTreesAPIError::Execution {
-            source: ExecutionError::DataFusion {
-                source: DataFusionError::Internal(format!("Missing or invalid column: '{name}'")),
-            },
-        })
 }
