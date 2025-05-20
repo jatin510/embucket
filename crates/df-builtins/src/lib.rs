@@ -32,6 +32,7 @@ mod is_object;
 mod json;
 mod nullifzero;
 mod parse_json;
+mod rtrimmed_length;
 pub mod table;
 mod time_from_parts;
 mod timestamp_from_parts;
@@ -57,6 +58,7 @@ pub fn register_udfs(registry: &mut dyn FunctionRegistry) -> Result<()> {
         is_array::get_udf(),
         array_flatten::get_udf(),
         array_to_string::get_udf(),
+        rtrimmed_length::get_udf(),
         insert::get_udf(),
         Arc::new(ScalarUDF::from(ToBooleanFunc::new(false))),
         Arc::new(ScalarUDF::from(ToBooleanFunc::new(true))),
