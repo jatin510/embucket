@@ -29,6 +29,7 @@ mod iff;
 mod insert;
 mod is_array;
 mod is_object;
+mod json;
 mod nullifzero;
 mod parse_json;
 pub mod table;
