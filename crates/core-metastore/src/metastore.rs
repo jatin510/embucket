@@ -16,24 +16,15 @@ use object_store::{ObjectStore, PutPayload, path::Path};
 use serde::de::DeserializeOwned;
 use snafu::ResultExt;
 use uuid::Uuid;
+use strum::Display;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
+#[strum(serialize_all = "lowercase")]
 pub enum MetastoreObjectType {
     Volume,
     Database,
     Schema,
     Table,
-}
-
-impl MetastoreObjectType {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Volume => "volume",
-            Self::Database => "database",
-            Self::Schema => "schema",
-            Self::Table => "table",
-        }
-    }
 }
 
 #[async_trait]
@@ -190,7 +181,7 @@ impl SlateDBMetastore {
             Ok(rwobject)
         } else {
             Err(metastore_error::MetastoreError::ObjectAlreadyExists {
-                type_name: object_type.as_str().to_owned(),
+                type_name: object_type.to_string(),
                 name: key.to_string(),
             })
         }
