@@ -98,14 +98,15 @@ impl ExecutionService for CoreExecutionService {
         query: &str,
         query_context: QueryContext,
     ) -> ExecutionResult<QueryResultData> {
-        let sessions = self.df_sessions.read().await;
-        let user_session =
+        let user_session = {
+            let sessions = self.df_sessions.read().await;
             sessions
                 .get(session_id)
                 .ok_or(ExecutionError::MissingDataFusionSession {
                     id: session_id.to_string(),
-                })?;
-
+                })?
+                .clone()
+        };
         let mut query_obj = user_session.query(query, query_context);
 
         let records: Vec<RecordBatch> = query_obj.execute().await?;
