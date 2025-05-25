@@ -157,6 +157,8 @@ impl EmbucketCatalogList {
 
     #[allow(clippy::as_conversions, clippy::too_many_lines)]
     pub async fn refresh(&self) -> Result<()> {
+        println!("catalog  before refresh self.catalogs; {:?}", self.catalogs);
+
         for catalog in self.catalogs.iter_mut() {
             if catalog.should_refresh {
                 let schemas = catalog.schema_names();
@@ -195,6 +197,8 @@ impl EmbucketCatalogList {
                 }
             }
         }
+        println!("catalog after refresh self.catalogs; {:?}", self.catalogs);
+
         Ok(())
     }
 

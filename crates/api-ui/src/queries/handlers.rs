@@ -94,6 +94,9 @@ pub async fn query(
         payload.worksheet_id,
     );
 
+    println!("****************");
+    println!("query context {:?}", query_context);
+
     let query_res = state
         .execution_svc
         .query(&session_id, &payload.query, query_context)

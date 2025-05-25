@@ -24,7 +24,7 @@ datafusion-physical-plan = { workspace = true }
 datafusion_iceberg = { workspace = true }
 futures = { workspace = true }
 sqlparser = { git = "https://github.com/Embucket/datafusion-sqlparser-rs.git", rev = "7caf74317dfc704273819e527c2536dbb3a7051f", features = [
-  "visitor",
+    "visitor",
 ] }
 iceberg-rust = { workspace = true }
 iceberg-s3tables-catalog = { workspace = true }
@@ -43,6 +43,7 @@ tokio-stream = "0.1.17"
 
 url = { workspace = true }
 uuid = { workspace = true }
+derive_more = { workspace = true }
 
 [dev-dependencies]
 bytes = { workspace = true }

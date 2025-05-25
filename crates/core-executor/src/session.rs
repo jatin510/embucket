@@ -28,6 +28,7 @@ use datafusion_common::config::{ConfigEntry, ConfigExtension, ExtensionOptions};
 use datafusion_functions_json::register_all as register_json_udfs;
 use datafusion_iceberg::catalog::catalog::IcebergCatalog as DataFusionIcebergCatalog;
 use datafusion_iceberg::planner::IcebergQueryPlanner;
+use derive_more::Debug;
 use df_builtins::register_udafs;
 use df_catalog::catalog_list::{DEFAULT_CATALOG, EmbucketCatalogList};
 use iceberg_rust::object_store::ObjectStoreBuilder;
@@ -40,8 +41,10 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 
+#[derive(Debug)]
 pub struct UserSession {
     pub metastore: Arc<dyn Metastore>,
+    #[debug(skip)]
     pub ctx: SessionContext,
     pub ident_normalizer: IdentNormalizer,
     pub executor: DedicatedExecutor,
@@ -149,6 +152,7 @@ impl UserSession {
                 ObjectStoreBuilder::S3(volume.s3_builder()),
             )
             .context(ex_error::S3TablesSnafu)?;
+            println!("s3 catalog {:?}", catalog);
 
             let catalog = DataFusionIcebergCatalog::new(Arc::new(catalog), None)
                 .await

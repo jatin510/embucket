@@ -44,6 +44,7 @@ where
     #[allow(clippy::too_many_lines)]
     pub fn sql_statement_to_plan(&self, statement: Statement) -> Result<LogicalPlan> {
         let planner_context: &mut PlannerContext = &mut PlannerContext::new();
+        println!("satement sql_staement_to_plan {:?}", statement);
         // TODO: Refactor what statements are handleded here vs UserQuery `sql_to_statement`
         match statement.clone() {
             Statement::AlterTable { .. }
@@ -132,7 +133,13 @@ where
                     )))
                 }
             }
-            _ => self.inner.sql_statement_to_plan(statement),
+            _ => {
+                println!("getting to default in sql_statement_to_plan");
+                let result = self.inner.sql_statement_to_plan(statement);
+                println!("fuck up is happening here");
+                println!("result {:?}", result);
+                result
+            }
         }
     }
 

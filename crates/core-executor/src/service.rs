@@ -108,6 +108,8 @@ impl ExecutionService for CoreExecutionService {
 
         let mut query_obj = user_session.query(query, query_context);
 
+        println!("query_obj {:?}", query_obj);
+
         let records: Vec<RecordBatch> = query_obj.execute().await?;
 
         let data_format = self.config().dbt_serialization_format;

@@ -1,19 +1,19 @@
 [workspace]
 default-members = ["crates/embucketd"]
 members = [
-  "crates/embucketd",
-  "crates/api-iceberg-rest",
-  "crates/api-internal-rest",
-  "crates/api-snowflake-rest",
-  "crates/api-ui",
-  "crates/api-ui-static-assets",
-  "crates/df-builtins",
-  "crates/df-catalog",
-  "crates/core-executor",
-  "crates/core-history",
-  "crates/core-metastore",
-  "crates/core-utils",
-  "crates/api-sessions",
+    "crates/embucketd",
+    "crates/api-iceberg-rest",
+    "crates/api-internal-rest",
+    "crates/api-snowflake-rest",
+    "crates/api-ui",
+    "crates/api-ui-static-assets",
+    "crates/df-builtins",
+    "crates/df-catalog",
+    "crates/core-executor",
+    "crates/core-history",
+    "crates/core-metastore",
+    "crates/core-utils",
+    "crates/api-sessions",
 ]
 resolver = "2"
 package.license-file = "LICENSE"
@@ -27,11 +27,11 @@ codegen-units = 16
 [workspace.dependencies]
 async-trait = { version = "0.1.84" }
 aws-config = { version = "1.5.17" }
-aws-credential-types = { version = "1.2.1",  features = ["hardcoded-credentials"]}
+aws-credential-types = { version = "1.2.1", features = ["hardcoded-credentials"] }
 axum = { version = "0.8.1", features = ["multipart", "macros"] }
 axum-macros = "0.5"
 bytes = { version = "1.8.0" }
-chrono = { version = "0.4.41", default-features = false, features = ["serde",  "clock"] }
+chrono = { version = "0.4.41", default-features = false, features = ["serde", "clock"] }
 dashmap = "6.1.0"
 datafusion = { version = "47.0.0" }
 datafusion-common = { version = "47.0.0" }
@@ -44,7 +44,7 @@ datafusion_iceberg = { git = "https://github.com/Embucket/iceberg-rust.git", rev
 futures = { version = "0.3" }
 http = "1.2"
 http-body-util = "0.1.0"
-iceberg = { git = "https://github.com/apache/iceberg-rust.git", rev="7a5ad1fcaf00d4638857812bab788105f6c60573"}
+iceberg = { git = "https://github.com/apache/iceberg-rust.git", rev = "7a5ad1fcaf00d4638857812bab788105f6c60573" }
 iceberg-rest-catalog = { git = "https://github.com/Embucket/iceberg-rust.git", rev = "7f7e21f0bcf50f6fe6c13cada6b76057ffdfa869" }
 iceberg-rust = { git = "https://github.com/Embucket/iceberg-rust.git", rev = "7f7e21f0bcf50f6fe6c13cada6b76057ffdfa869" }
 iceberg-rust-spec = { git = "https://github.com/Embucket/iceberg-rust.git", rev = "7f7e21f0bcf50f6fe6c13cada6b76057ffdfa869" }
@@ -68,11 +68,11 @@ time = "0.3.37"
 tokio = { version = "1", features = ["full"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6.1", features = [
-  "catch-panic",
-  "timeout",
-  "sensitive-headers",
-  "cors",
-  "trace",
+    "catch-panic",
+    "timeout",
+    "sensitive-headers",
+    "cors",
+    "trace",
 ] }
 tower-sessions = { version = "0.14.0" }
 tracing = { version = "0.1", features = ["attributes"] }
@@ -83,6 +83,8 @@ utoipa-axum = { version = "0.2.0" }
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
 uuid = { version = "1.10.0", features = ["v4", "serde"] }
 validator = { version = "0.20.0", features = ["derive"] }
+derive_more = { version = "2.0.1", features = ["full"] }
+
 
 [patch.crates-io]
 datafusion = { git = "https://github.com/Embucket/datafusion.git", rev = "7d38be89f5597bca15604332a9b309e6e4c77e35" }

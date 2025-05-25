@@ -82,6 +82,7 @@ impl QueryContext {
     }
 }
 
+#[derive(Debug)]
 pub struct UserQuery {
     pub metastore: Arc<dyn Metastore>,
     pub raw_query: String,
@@ -124,6 +125,15 @@ impl UserQuery {
     }
 
     fn current_database(&self) -> String {
+        println!(
+            "getting current database: querycontext db {:?}",
+            self.query_context.database
+        );
+        println!(
+            "session variable databsae {:?}",
+            self.session.get_session_variable("database")
+        );
+
         self.query_context
             .database
             .clone()
@@ -148,6 +158,7 @@ impl UserQuery {
             .as_any()
             .downcast_ref::<EmbucketCatalogList>()
         {
+            println!("trying to refresh the embucket catalog list");
             catalog_list_impl
                 .refresh()
                 .await
@@ -169,6 +180,7 @@ impl UserQuery {
     #[instrument(level = "debug", skip(self), err, ret(level = tracing::Level::TRACE))]
     pub async fn execute(&mut self) -> ExecutionResult<Vec<RecordBatch>> {
         let statement = self.parse_query().context(super::error::DataFusionSnafu)?;
+        println!("statement {:?}", statement);
         self.query = statement.to_string();
 
         // TODO: Code should be organized in a better way
@@ -463,6 +475,7 @@ impl UserQuery {
             self.update_qualify_in_query(query);
         }
 
+        println!("create table logical plan to be called");
         let plan = self
             .get_custom_logical_plan(&create_table_statement.to_string())
             .await?;
@@ -479,6 +492,8 @@ impl UserQuery {
         )
         .await?;
 
+        println!("create table query fn");
+        println!("plan {:?}", plan);
         // Now we have created table in the metastore, we need to register it in the catalog
         self.refresh_catalog().await?;
 
@@ -518,7 +533,9 @@ impl UserQuery {
                 WriteOp::Insert(InsertOp::Append),
                 input,
             ));
-            return self.execute_logical_plan(insert_plan).await;
+            let result = self.execute_logical_plan(insert_plan).await?;
+            self.refresh_catalog().await?;
+            return Ok(result);
         }
         created_entity_response()
     }
@@ -1182,16 +1199,24 @@ impl UserQuery {
     #[instrument(level = "trace", skip(self), err, ret)]
     pub async fn get_custom_logical_plan(&self, query: &str) -> ExecutionResult<LogicalPlan> {
         let state = self.session.ctx.state();
-        let dialect = state.config().options().sql_parser.dialect.as_str();
+        // println!("session state{:?}", state);
+        println!("#####################################");
+        println!("trying to get catalog {:?}", self.session.metastore);
 
+        let dialect = state.config().options().sql_parser.dialect.as_str();
+        println!("dialect {:?}", dialect);
         // We turn a query to SQL only to turn it back into a statement
         // TODO: revisit this pattern
         let statement = state
             .sql_to_statement(query, dialect)
             .context(super::error::DataFusionSnafu)?;
+        println!("statement  created from query");
 
-        if let DFStatement::Statement(s) = statement.clone() {
-            self.sql_statement_to_plan(*s).await
+        if let DFStatement::Statement(s) = statement {
+            println!("it is comming inside the line 1214 in query.rs");
+            let result = self.sql_statement_to_plan(*s).await;
+            println!("result {:?}", result);
+            result
         } else {
             Err(ExecutionError::DataFusion {
                 source: DataFusionError::NotImplemented(
@@ -1205,21 +1230,29 @@ impl UserQuery {
         &self,
         statement: Statement,
     ) -> ExecutionResult<LogicalPlan> {
+        println!("imporatnt function for me.............................");
+        println!("sql statement to plan ");
         let tables = self
             .table_references_for_statement(
                 &DFStatement::Statement(Box::new(statement.clone())),
                 &self.session.ctx.state(),
             )
             .await?;
+        println!("got tables data successfully");
         let ctx_provider = SessionContextProvider {
             state: &self.session.ctx.state(),
             tables,
         };
+
         let planner =
             ExtendedSqlToRel::new(&ctx_provider, self.session.ctx.state().get_parser_options());
-        planner
+        println!("planner created");
+        let result = planner
             .sql_statement_to_plan(statement)
-            .context(super::error::DataFusionSnafu)
+            .context(super::error::DataFusionSnafu);
+
+        println!("planner result {:?}", result);
+        result
     }
 
     async fn execute_sql(&self, query: &str) -> ExecutionResult<Vec<RecordBatch>> {
@@ -1244,6 +1277,7 @@ impl UserQuery {
     }
 
     async fn execute_logical_plan(&self, plan: LogicalPlan) -> ExecutionResult<Vec<RecordBatch>> {
+        println!("execute logical plan for insert maybe {:?}", plan);
         let session = self.session.clone();
         let stream = self
             .session
@@ -1265,7 +1299,9 @@ impl UserQuery {
 
     #[instrument(level = "trace", skip(self), err, ret)]
     pub async fn execute_with_custom_plan(&self, query: &str) -> ExecutionResult<Vec<RecordBatch>> {
+        println!("executing insert sql query");
         let plan = self.get_custom_logical_plan(query).await?;
+        println!("in function execute_with_custom_plan, logicla plancreated successfullu");
         self.execute_logical_plan(plan).await
     }
 
