@@ -16,7 +16,7 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::ScalarValue;
 use datafusion_expr::{Expr, LogicalPlan};
 use snafu::ResultExt;
-use sqlparser::ast::{Ident, ObjectName};
+use sqlparser::ast::{Ident, ObjectName, TableObject};
 use std::collections::HashMap;
 use std::sync::Arc;
 use strum::{Display, EnumString};
@@ -395,6 +395,12 @@ impl From<NormalizedIdent> for MetastoreSchemaIdent {
 }
 
 impl From<NormalizedIdent> for ObjectName {
+    fn from(ident: NormalizedIdent) -> Self {
+        Self::from(ident.0)
+    }
+}
+
+impl From<NormalizedIdent> for TableObject {
     fn from(ident: NormalizedIdent) -> Self {
         Self::from(ident.0)
     }

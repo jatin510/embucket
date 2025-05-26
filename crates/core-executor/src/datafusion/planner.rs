@@ -133,13 +133,14 @@ where
                     )))
                 }
             }
-            _ => {
-                println!("getting to default in sql_statement_to_plan");
+            Statement::Insert(_insert) => {
+                println!("getting to insert in sql_statement_to_plan");
                 let result = self.inner.sql_statement_to_plan(statement);
-                println!("fuck up is happening here");
                 println!("result {:?}", result);
+                println!("fuck up is happening here");
                 result
             }
+            _ => self.inner.sql_statement_to_plan(statement),
         }
     }
 

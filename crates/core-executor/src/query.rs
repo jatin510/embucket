@@ -37,6 +37,7 @@ use iceberg_rust::spec::types::StructType;
 use object_store::aws::AmazonS3Builder;
 use serde::{Deserialize, Serialize};
 use snafu::ResultExt;
+use sqlparser::ast::TableObject::TableName;
 use sqlparser::ast::helpers::attached_token::AttachedToken;
 use sqlparser::ast::{
     BinaryOperator, GroupByExpr, MergeAction, MergeClauseKind, MergeInsertKind, ObjectNamePart,
@@ -170,6 +171,7 @@ impl UserQuery {
     #[instrument(level = "debug", skip(self), err, ret(level = tracing::Level::TRACE))]
     pub async fn execute(&mut self) -> ExecutionResult<QueryResult> {
         let statement = self.parse_query().context(super::error::DataFusionSnafu)?;
+        println!("statement in execute function {:?}", statement);
         self.query = statement.to_string();
 
         // TODO: Code should be organized in a better way
@@ -267,8 +269,27 @@ impl UserQuery {
                 Statement::AlterTable { .. }
                 | Statement::StartTransaction { .. }
                 | Statement::Commit { .. }
-                | Statement::Insert { .. }
                 | Statement::Update { .. } => {
+                    return Box::pin(self.execute_with_custom_plan(&self.query)).await;
+                }
+                Statement::Insert(_) => {
+                    let mut statement = *s;
+
+                    if let Statement::Insert(ref mut insert_statement) = statement {
+                        let table_name = match &insert_statement.table {
+                            TableName(name) => name,
+                            _ => {
+                                return Box::pin(self.execute_with_custom_plan(&self.query)).await;
+                            }
+                        };
+
+                        let new_table_ident =
+                            self.resolve_table_object_name(table_name.0.clone())?;
+
+                        insert_statement.table = new_table_ident.clone().into();
+                    }
+                    let query = statement.to_string();
+                    self.query = query;
                     return Box::pin(self.execute_with_custom_plan(&self.query)).await;
                 }
                 Statement::ShowDatabases { .. }
@@ -431,6 +452,10 @@ impl UserQuery {
     #[allow(clippy::redundant_else, clippy::too_many_lines)]
     #[instrument(level = "trace", skip(self), err, ret)]
     pub async fn create_table_query(&self, statement: Statement) -> ExecutionResult<QueryResult> {
+        println!(
+            "create table function called with statement: {:?} ",
+            statement
+        );
         let Statement::CreateTable(mut create_table_statement) = statement.clone() else {
             return Err(ExecutionError::DataFusion {
                 source: DataFusionError::NotImplemented(
@@ -445,6 +470,8 @@ impl UserQuery {
 
         let new_table_ident =
             self.resolve_table_object_name(create_table_statement.name.0.clone())?;
+
+        println!("new_table_ident {:?}", new_table_ident);
         create_table_statement.name = new_table_ident.clone().into();
         // We don't support transient tables for now
         create_table_statement.transient = false;
@@ -517,6 +544,7 @@ impl UserQuery {
             ));
             return self.execute_logical_plan(insert_plan).await;
         }
+        println!("returning value in create_table_query");
         created_entity_response()
     }
 
@@ -1175,6 +1203,7 @@ impl UserQuery {
 
     #[instrument(level = "trace", skip(self), err, ret)]
     pub async fn get_custom_logical_plan(&self, query: &str) -> ExecutionResult<LogicalPlan> {
+        println!("creating custom logical plan");
         let state = self.session.ctx.state();
         let dialect = state.config().options().sql_parser.dialect.as_str();
 
@@ -1185,7 +1214,9 @@ impl UserQuery {
             .context(super::error::DataFusionSnafu)?;
 
         if let DFStatement::Statement(s) = statement.clone() {
-            self.sql_statement_to_plan(*s).await
+            let result = self.sql_statement_to_plan(*s).await;
+            println!("get_custom_logical_plan, result  {:?}", result);
+            result
         } else {
             Err(ExecutionError::DataFusion {
                 source: DataFusionError::NotImplemented(
@@ -1211,9 +1242,13 @@ impl UserQuery {
         };
         let planner =
             ExtendedSqlToRel::new(&ctx_provider, self.session.ctx.state().get_parser_options());
-        planner
+        let result = planner
             .sql_statement_to_plan(statement)
-            .context(super::error::DataFusionSnafu)
+            .context(super::error::DataFusionSnafu);
+
+        println!("sql_statement_to_plan, result {:?}", result);
+
+        result
     }
 
     async fn execute_sql(&self, query: &str) -> ExecutionResult<QueryResult> {
@@ -1262,6 +1297,9 @@ impl UserQuery {
     #[instrument(level = "trace", skip(self), err, ret)]
     pub async fn execute_with_custom_plan(&self, query: &str) -> ExecutionResult<QueryResult> {
         let plan = self.get_custom_logical_plan(query).await?;
+        println!(
+            "execute_with_custom_plan: logical plan successfully created, now will execute the logical plan"
+        );
         self.execute_logical_plan(plan).await
     }
 
