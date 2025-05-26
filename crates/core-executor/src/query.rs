@@ -56,6 +56,7 @@ use super::error::{self as ex_error, ExecutionError, ExecutionResult, RefreshCat
 use super::session::{SessionProperty, UserSession};
 use super::utils::{NormalizedIdent, is_logical_plan_effectively_empty};
 use crate::datafusion::visitors::{copy_into_identifiers, functions_rewriter, json_element};
+use crate::models::QueryResult;
 use df_catalog::catalog::CachingCatalog;
 use tracing_attributes::instrument;
 
@@ -82,7 +83,6 @@ impl QueryContext {
     }
 }
 
-#[derive(Debug)]
 pub struct UserQuery {
     pub metastore: Arc<dyn Metastore>,
     pub raw_query: String,
@@ -93,7 +93,7 @@ pub struct UserQuery {
 
 pub enum IcebergCatalogResult {
     Catalog(Arc<dyn Catalog>),
-    Result(ExecutionResult<Vec<RecordBatch>>),
+    Result(ExecutionResult<QueryResult>),
 }
 
 impl UserQuery {
@@ -125,15 +125,6 @@ impl UserQuery {
     }
 
     fn current_database(&self) -> String {
-        println!(
-            "getting current database: querycontext db {:?}",
-            self.query_context.database
-        );
-        println!(
-            "session variable databsae {:?}",
-            self.session.get_session_variable("database")
-        );
-
         self.query_context
             .database
             .clone()
@@ -158,7 +149,6 @@ impl UserQuery {
             .as_any()
             .downcast_ref::<EmbucketCatalogList>()
         {
-            println!("trying to refresh the embucket catalog list");
             catalog_list_impl
                 .refresh()
                 .await
@@ -178,9 +168,8 @@ impl UserQuery {
     }
 
     #[instrument(level = "debug", skip(self), err, ret(level = tracing::Level::TRACE))]
-    pub async fn execute(&mut self) -> ExecutionResult<Vec<RecordBatch>> {
+    pub async fn execute(&mut self) -> ExecutionResult<QueryResult> {
         let statement = self.parse_query().context(super::error::DataFusionSnafu)?;
-        println!("statement {:?}", statement);
         self.query = statement.to_string();
 
         // TODO: Code should be organized in a better way
@@ -247,8 +236,7 @@ impl UserQuery {
                     return status_response();
                 }
                 Statement::CreateTable { .. } => {
-                    let result = Box::pin(self.create_table_query(*s)).await;
-                    return result;
+                    return Box::pin(self.create_table_query(*s)).await;
                 }
                 Statement::CreateDatabase { .. } => {
                     // TODO: Databases are only able to be created through the
@@ -382,7 +370,7 @@ impl UserQuery {
     }
 
     #[instrument(level = "trace", skip(self), err, ret)]
-    pub async fn drop_query(&self, statement: Statement) -> ExecutionResult<Vec<RecordBatch>> {
+    pub async fn drop_query(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let Statement::Drop {
             names, object_type, ..
         } = statement.clone()
@@ -442,10 +430,7 @@ impl UserQuery {
 
     #[allow(clippy::redundant_else, clippy::too_many_lines)]
     #[instrument(level = "trace", skip(self), err, ret)]
-    pub async fn create_table_query(
-        &self,
-        statement: Statement,
-    ) -> ExecutionResult<Vec<RecordBatch>> {
+    pub async fn create_table_query(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let Statement::CreateTable(mut create_table_statement) = statement.clone() else {
             return Err(ExecutionError::DataFusion {
                 source: DataFusionError::NotImplemented(
@@ -475,7 +460,6 @@ impl UserQuery {
             self.update_qualify_in_query(query);
         }
 
-        println!("create table logical plan to be called");
         let plan = self
             .get_custom_logical_plan(&create_table_statement.to_string())
             .await?;
@@ -492,8 +476,6 @@ impl UserQuery {
         )
         .await?;
 
-        println!("create table query fn");
-        println!("plan {:?}", plan);
         // Now we have created table in the metastore, we need to register it in the catalog
         self.refresh_catalog().await?;
 
@@ -533,9 +515,7 @@ impl UserQuery {
                 WriteOp::Insert(InsertOp::Append),
                 input,
             ));
-            let result = self.execute_logical_plan(insert_plan).await?;
-            self.refresh_catalog().await?;
-            return Ok(result);
+            return self.execute_logical_plan(insert_plan).await;
         }
         created_entity_response()
     }
@@ -549,7 +529,7 @@ impl UserQuery {
         ident: MetastoreTableIdent,
         statement: CreateTableStatement,
         plan: LogicalPlan,
-    ) -> ExecutionResult<Vec<RecordBatch>> {
+    ) -> ExecutionResult<QueryResult> {
         let iceberg_catalog = match self
             .resolve_iceberg_catalog_or_execute(catalog, catalog_name, plan.clone())
             .await
@@ -626,7 +606,7 @@ impl UserQuery {
     pub async fn create_external_table_query(
         &self,
         statement: CreateExternalTable,
-    ) -> ExecutionResult<Vec<RecordBatch>> {
+    ) -> ExecutionResult<QueryResult> {
         let table_location = statement.location.clone();
         let table_format = MetastoreTableFormat::from(statement.file_type);
         let session_context = HashMap::new();
@@ -695,10 +675,7 @@ impl UserQuery {
     /// - We don't need to create table in case we have common shared session context.
     ///   CSV is registered as a table which can referenced from SQL statements executed against this context
     /// - Revisit this with the new metastore approach
-    pub async fn create_stage_query(
-        &self,
-        statement: Statement,
-    ) -> ExecutionResult<Vec<RecordBatch>> {
+    pub async fn create_stage_query(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let Statement::CreateStage {
             name,
             stage_params,
@@ -804,7 +781,7 @@ impl UserQuery {
     pub async fn copy_into_snowflake_query(
         &self,
         statement: Statement,
-    ) -> ExecutionResult<Vec<RecordBatch>> {
+    ) -> ExecutionResult<QueryResult> {
         let Statement::CopyIntoSnowflake { into, from_obj, .. } = statement else {
             return Err(ExecutionError::DataFusion {
                 source: DataFusionError::NotImplemented(
@@ -833,7 +810,7 @@ impl UserQuery {
     }
 
     #[instrument(level = "trace", skip(self), err, ret)]
-    pub async fn merge_query(&self, statement: Statement) -> ExecutionResult<Vec<RecordBatch>> {
+    pub async fn merge_query(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let Statement::Merge {
             table,
             mut source,
@@ -919,7 +896,7 @@ impl UserQuery {
     }
 
     #[instrument(level = "trace", skip(self), err, ret)]
-    pub async fn create_schema(&self, statement: Statement) -> ExecutionResult<Vec<RecordBatch>> {
+    pub async fn create_schema(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let Statement::CreateSchema {
             schema_name,
             if_not_exists,
@@ -984,7 +961,7 @@ impl UserQuery {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub async fn show_query(&self, statement: Statement) -> ExecutionResult<Vec<RecordBatch>> {
+    pub async fn show_query(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let query = match statement {
             Statement::ShowDatabases { .. } => {
                 format!(
@@ -1199,24 +1176,16 @@ impl UserQuery {
     #[instrument(level = "trace", skip(self), err, ret)]
     pub async fn get_custom_logical_plan(&self, query: &str) -> ExecutionResult<LogicalPlan> {
         let state = self.session.ctx.state();
-        // println!("session state{:?}", state);
-        println!("#####################################");
-        println!("trying to get catalog {:?}", self.session.metastore);
-
         let dialect = state.config().options().sql_parser.dialect.as_str();
-        println!("dialect {:?}", dialect);
+
         // We turn a query to SQL only to turn it back into a statement
         // TODO: revisit this pattern
         let statement = state
             .sql_to_statement(query, dialect)
             .context(super::error::DataFusionSnafu)?;
-        println!("statement  created from query");
 
-        if let DFStatement::Statement(s) = statement {
-            println!("it is comming inside the line 1214 in query.rs");
-            let result = self.sql_statement_to_plan(*s).await;
-            println!("result {:?}", result);
-            result
+        if let DFStatement::Statement(s) = statement.clone() {
+            self.sql_statement_to_plan(*s).await
         } else {
             Err(ExecutionError::DataFusion {
                 source: DataFusionError::NotImplemented(
@@ -1230,67 +1199,60 @@ impl UserQuery {
         &self,
         statement: Statement,
     ) -> ExecutionResult<LogicalPlan> {
-        println!("imporatnt function for me.............................");
-        println!("sql statement to plan ");
         let tables = self
             .table_references_for_statement(
                 &DFStatement::Statement(Box::new(statement.clone())),
                 &self.session.ctx.state(),
             )
             .await?;
-        println!("got tables data successfully");
         let ctx_provider = SessionContextProvider {
             state: &self.session.ctx.state(),
             tables,
         };
-
         let planner =
             ExtendedSqlToRel::new(&ctx_provider, self.session.ctx.state().get_parser_options());
-        println!("planner created");
-        let result = planner
+        planner
             .sql_statement_to_plan(statement)
-            .context(super::error::DataFusionSnafu);
-
-        println!("planner result {:?}", result);
-        result
+            .context(super::error::DataFusionSnafu)
     }
 
-    async fn execute_sql(&self, query: &str) -> ExecutionResult<Vec<RecordBatch>> {
+    async fn execute_sql(&self, query: &str) -> ExecutionResult<QueryResult> {
         let session = self.session.clone();
         let query = query.to_string();
         let stream = self
             .session
             .executor
             .spawn(async move {
-                session
+                let df = session
                     .ctx
                     .sql(&query)
                     .await
-                    .context(super::error::DataFusionSnafu)?
-                    .collect()
-                    .await
-                    .context(super::error::DataFusionSnafu)
+                    .context(super::error::DataFusionSnafu)?;
+                let schema = df.schema().as_arrow().clone();
+                let records = df.collect().await.context(super::error::DataFusionSnafu)?;
+                Ok(QueryResult::new(records, Arc::new(schema)))
             })
             .await
             .context(super::error::JobSnafu)??;
         Ok(stream)
     }
 
-    async fn execute_logical_plan(&self, plan: LogicalPlan) -> ExecutionResult<Vec<RecordBatch>> {
-        println!("execute logical plan for insert maybe {:?}", plan);
+    async fn execute_logical_plan(&self, plan: LogicalPlan) -> ExecutionResult<QueryResult> {
         let session = self.session.clone();
         let stream = self
             .session
             .executor
             .spawn(async move {
-                session
+                let schema = plan.schema().as_arrow().clone();
+                let records = session
                     .ctx
                     .execute_logical_plan(plan)
                     .await
                     .context(super::error::DataFusionSnafu)?
                     .collect()
                     .await
-                    .context(super::error::DataFusionSnafu)
+                    .context(super::error::DataFusionSnafu)?;
+                Ok(QueryResult::new(records, Arc::new(schema)))
             })
             .await
             .context(super::error::JobSnafu)??;
@@ -1298,10 +1260,8 @@ impl UserQuery {
     }
 
     #[instrument(level = "trace", skip(self), err, ret)]
-    pub async fn execute_with_custom_plan(&self, query: &str) -> ExecutionResult<Vec<RecordBatch>> {
-        println!("executing insert sql query");
+    pub async fn execute_with_custom_plan(&self, query: &str) -> ExecutionResult<QueryResult> {
         let plan = self.get_custom_logical_plan(query).await?;
-        println!("in function execute_with_custom_plan, logicla plancreated successfullu");
         self.execute_logical_plan(plan).await
     }
 
@@ -1705,7 +1665,8 @@ impl UserQuery {
 
                 let result = self.execute_with_custom_plan(&query).await;
                 if let Ok(batches) = result {
-                    *value_source = PivotValueSource::List(Self::convert_batches_to_exprs(batches));
+                    *value_source =
+                        PivotValueSource::List(Self::convert_batches_to_exprs(batches.records));
                 }
             }
             PivotValueSource::Subquery(subquery) => {
@@ -1714,7 +1675,8 @@ impl UserQuery {
                 let result = self.execute_with_custom_plan(&subquery_sql).await;
 
                 if let Ok(batches) = result {
-                    *value_source = PivotValueSource::List(Self::convert_batches_to_exprs(batches));
+                    *value_source =
+                        PivotValueSource::List(Self::convert_batches_to_exprs(batches.records));
                 }
             }
             PivotValueSource::List(_) => {
@@ -2060,23 +2022,29 @@ fn apply_show_filters(sql: String, filters: &[String]) -> String {
     }
 }
 
-pub fn created_entity_response() -> ExecutionResult<Vec<RecordBatch>> {
+pub fn created_entity_response() -> ExecutionResult<QueryResult> {
     let schema = Arc::new(ArrowSchema::new(vec![Field::new(
         "count",
         DataType::Int64,
         false,
     )]));
-    Ok(vec![
-        RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![0]))])
-            .context(ex_error::ArrowSnafu)?,
-    ])
+    Ok(QueryResult::new(
+        vec![
+            RecordBatch::try_new(schema.clone(), vec![Arc::new(Int64Array::from(vec![0]))])
+                .context(ex_error::ArrowSnafu)?,
+        ],
+        schema,
+    ))
 }
 
-pub fn status_response() -> ExecutionResult<Vec<RecordBatch>> {
+pub fn status_response() -> ExecutionResult<QueryResult> {
     let schema = Arc::new(ArrowSchema::new(vec![Field::new(
         "status",
         DataType::Utf8,
         false,
     )]));
-    Ok(vec![RecordBatch::new_empty(schema)])
+    Ok(QueryResult::new(
+        vec![RecordBatch::new_empty(schema.clone())],
+        schema,
+    ))
 }
