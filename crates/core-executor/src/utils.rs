@@ -402,7 +402,7 @@ impl From<NormalizedIdent> for ObjectName {
 
 impl From<NormalizedIdent> for TableObject {
     fn from(ident: NormalizedIdent) -> Self {
-        Self::from(ident.0)
+        TableObject::TableName(ObjectName::from(ident.0))
     }
 }
 
