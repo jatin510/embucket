@@ -283,6 +283,10 @@ impl UserQuery {
                             }
                         };
 
+                        // todo
+                        // once this is fixed, my issue for resolving table object name is fixed
+                        println!("table_name from the deep down {:?}", table_name);
+
                         let new_table_ident =
                             self.resolve_table_object_name(table_name.0.clone())?;
 
@@ -468,11 +472,25 @@ impl UserQuery {
             .clone()
             .or_else(|| create_table_statement.base_location.clone());
 
+        println!("***** important ****");
+        println!(
+            "create_table_statement name {:?}",
+            create_table_statement.name
+        );
+        println!(
+            "create_table_statement name.0 {:?}",
+            create_table_statement.name.0
+        );
         let new_table_ident =
             self.resolve_table_object_name(create_table_statement.name.0.clone())?;
 
         println!("new_table_ident {:?}", new_table_ident);
+        // println!(
+        //     "new_table_ident into {:?}",
+        //     <NormalizedIdent::into(new_table_ident.clone())
+        // );
         create_table_statement.name = new_table_ident.clone().into();
+        println!("new table ident name {:?}", create_table_statement.name);
         // We don't support transient tables for now
         create_table_statement.transient = false;
         // Remove all unsupported iceberg params (we already take them into account)
