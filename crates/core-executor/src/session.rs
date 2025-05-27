@@ -14,28 +14,23 @@ use crate::datafusion::physical_optimizer::physical_optimizer_rules;
 use aws_config::{BehaviorVersion, Region, SdkConfig};
 use aws_credential_types::Credentials;
 use aws_credential_types::provider::SharedCredentialsProvider;
-use chrono::{DateTime, Utc};
 use core_metastore::error::MetastoreError;
 use core_metastore::{AwsCredentials, Metastore, VolumeType as MetastoreVolumeType};
 use core_utils::scan_iterator::ScanIterator;
 use datafusion::catalog::CatalogProvider;
-use datafusion::common::error::Result as DFResult;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion::sql::planner::IdentNormalizer;
-use datafusion_common::config::{ConfigEntry, ConfigExtension, ExtensionOptions};
 use datafusion_functions_json::register_all as register_json_udfs;
 use datafusion_iceberg::catalog::catalog::IcebergCatalog as DataFusionIcebergCatalog;
 use datafusion_iceberg::planner::IcebergQueryPlanner;
 use df_builtins::register_udafs;
 use df_catalog::catalog_list::{DEFAULT_CATALOG, EmbucketCatalogList};
+use df_catalog::information_schema::session_params::{SessionParams, SessionProperty};
 use iceberg_rust::object_store::ObjectStoreBuilder;
 use iceberg_s3tables_catalog::S3TablesCatalog;
 use snafu::ResultExt;
-use sqlparser::ast::Value;
-use sqlparser::ast::helpers::key_value_options::{KeyValueOption, KeyValueOptionType};
-use std::any::Any;
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
@@ -112,7 +107,7 @@ impl UserSession {
             .collect()
             .await
             .map_err(|e| ExecutionError::Metastore {
-                source: MetastoreError::UtilSlateDB { source: e },
+                source: Box::new(MetastoreError::UtilSlateDB { source: e }),
             })?
             .into_iter()
             .filter_map(|volume| {
@@ -213,224 +208,5 @@ impl UserSession {
             return cfg.properties.get(variable).map(|v| v.value.clone());
         }
         None
-    }
-}
-
-#[derive(Default, Debug, Clone)]
-pub struct SessionParams {
-    pub properties: HashMap<String, SessionProperty>,
-}
-
-#[derive(Default, Debug, Clone)]
-pub struct SessionProperty {
-    pub session_id: Option<String>,
-    pub created_on: DateTime<Utc>,
-    pub updated_on: DateTime<Utc>,
-    pub value: String,
-    pub property_type: String,
-    pub comment: Option<String>,
-}
-
-impl SessionProperty {
-    pub fn from_key_value(option: &KeyValueOption) -> Self {
-        let now = Utc::now();
-        Self {
-            session_id: None,
-            created_on: now,
-            updated_on: now,
-            value: option.value.clone(),
-            property_type: match option.option_type {
-                KeyValueOptionType::STRING | KeyValueOptionType::ENUM => "text".to_string(),
-                KeyValueOptionType::BOOLEAN => "boolean".to_string(),
-                KeyValueOptionType::NUMBER => "fixed".to_string(),
-            },
-            comment: None,
-        }
-    }
-
-    pub fn from_value(option: Value) -> Self {
-        let now = Utc::now();
-        Self {
-            session_id: None,
-            created_on: now,
-            updated_on: now,
-            value: match option {
-                Value::Number(_, _) | Value::Boolean(_) => option.to_string(),
-                _ => option.clone().into_string().unwrap_or_default(),
-            },
-            property_type: match option {
-                Value::Number(_, _) => "fixed".to_string(),
-                Value::Boolean(_) => "boolean".to_string(),
-                _ => "text".to_string(),
-            },
-            comment: None,
-        }
-    }
-
-    pub fn from_str(value: String) -> Self {
-        let now = Utc::now();
-        Self {
-            session_id: None,
-            created_on: now,
-            updated_on: now,
-            value,
-            property_type: "text".to_string(),
-            comment: None,
-        }
-    }
-}
-
-impl SessionParams {
-    pub fn set_properties(&mut self, properties: HashMap<String, SessionProperty>) -> DFResult<()> {
-        for (key, value) in properties {
-            self.properties.insert(key, value);
-        }
-        Ok(())
-    }
-
-    pub fn remove_properties(
-        &mut self,
-        properties: HashMap<String, SessionProperty>,
-    ) -> DFResult<()> {
-        for (key, ..) in properties {
-            self.properties.remove(&key);
-        }
-        Ok(())
-    }
-}
-
-impl ConfigExtension for SessionParams {
-    const PREFIX: &'static str = "session_params";
-}
-
-impl ExtensionOptions for SessionParams {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-    fn cloned(&self) -> Box<dyn ExtensionOptions> {
-        Box::new(self.clone())
-    }
-
-    fn set(&mut self, key: &str, value: &str) -> DFResult<()> {
-        self.properties
-            .insert(key.to_owned(), SessionProperty::from_str(value.to_owned()));
-        Ok(())
-    }
-
-    fn entries(&self) -> Vec<ConfigEntry> {
-        self.properties
-            .iter()
-            .map(|(key, prop)| ConfigEntry {
-                key: format!("session_params.{key}"),
-                value: Some(prop.value.clone()),
-                description: "session variable",
-            })
-            .collect()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-
-    use core_metastore::{
-        Database as MetastoreDatabase, Metastore, Schema as MetastoreSchema,
-        SchemaIdent as MetastoreSchemaIdent, SlateDBMetastore, Volume as MetastoreVolume,
-    };
-
-    use crate::{query::QueryContext, session::UserSession};
-
-    #[tokio::test]
-    #[allow(clippy::expect_used, clippy::manual_let_else, clippy::too_many_lines)]
-    async fn test_create_table_and_insert() {
-        let metastore = SlateDBMetastore::new_in_memory().await;
-        metastore
-            .create_volume(
-                &"test_volume".to_string(),
-                MetastoreVolume::new(
-                    "test_volume".to_string(),
-                    core_metastore::VolumeType::Memory,
-                ),
-            )
-            .await
-            .expect("Failed to create volume");
-        metastore
-            .create_database(
-                &"benchmark".to_string(),
-                MetastoreDatabase {
-                    ident: "benchmark".to_string(),
-                    properties: None,
-                    volume: "test_volume".to_string(),
-                },
-            )
-            .await
-            .expect("Failed to create database");
-        let schema_ident = MetastoreSchemaIdent {
-            database: "benchmark".to_string(),
-            schema: "public".to_string(),
-        };
-        metastore
-            .create_schema(
-                &schema_ident.clone(),
-                MetastoreSchema {
-                    ident: schema_ident,
-                    properties: None,
-                },
-            )
-            .await
-            .expect("Failed to create schema");
-        let session = Arc::new(
-            UserSession::new(metastore)
-                .await
-                .expect("Failed to create user session"),
-        );
-        let create_query = r"
-        CREATE TABLE benchmark.public.hits
-        (
-            WatchID BIGINT NOT NULL,
-            JavaEnable INTEGER NOT NULL,
-            Title TEXT NOT NULL,
-            GoodEvent INTEGER NOT NULL,
-            EventTime BIGINT NOT NULL,
-            EventDate INTEGER NOT NULL,
-            CounterID INTEGER NOT NULL,
-            ClientIP INTEGER NOT NULL,
-            PRIMARY KEY (CounterID, EventDate, EventTime, WatchID)
-        );
-    ";
-        let mut query1 = session.query(create_query, QueryContext::default());
-
-        let statement = query1.parse_query().expect("Failed to parse query");
-        let result = query1.execute().await.expect("Failed to execute query");
-
-        let all_query = session
-            .query("SHOW TABLES", QueryContext::default())
-            .execute()
-            .await
-            .expect("Failed to execute query");
-
-        let insert_query = session
-            .query(
-                "INSERT INTO benchmark.public.hits VALUES (1, 1, 'test', 1, 1, 1, 1, 1)",
-                QueryContext::default(),
-            )
-            .execute()
-            .await
-            .expect("Failed to execute query");
-
-        let select_query = session
-            .query(
-                "SELECT * FROM benchmark.public.hits",
-                QueryContext::default(),
-            )
-            .execute()
-            .await
-            .expect("Failed to execute query");
-
-        insta::assert_debug_snapshot!((statement, result, all_query, insert_query, select_query));
     }
 }

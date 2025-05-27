@@ -2,7 +2,9 @@ use crate::state::AppState;
 use crate::{OrderDirection, apply_parameters};
 use crate::{
     SearchParameters,
-    databases::error::{DatabasesAPIError, DatabasesResult},
+    databases::error::{
+        CreateSnafu, DatabasesAPIError, DatabasesResult, DeleteSnafu, GetSnafu, UpdateSnafu,
+    },
     databases::models::{
         Database, DatabaseCreatePayload, DatabaseCreateResponse, DatabasePayload, DatabaseResponse,
         DatabaseUpdatePayload, DatabaseUpdateResponse, DatabasesResponse,
@@ -15,10 +17,11 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use core_executor::models::QueryResultData;
+use core_executor::models::QueryResult;
 use core_executor::query::QueryContext;
 use core_metastore::Database as MetastoreDatabase;
 use core_metastore::error::MetastoreError;
+use snafu::{IntoError, ResultExt};
 use utoipa::OpenApi;
 use validator::Validate;
 
@@ -86,7 +89,7 @@ pub async fn create_database(
         .metastore
         .create_database(&database.ident.clone(), database)
         .await
-        .map_err(|e| DatabasesAPIError::Create { source: e })
+        .context(CreateSnafu)
         .map(|o| Json(DatabaseCreateResponse { data: o.into() }))
 }
 
@@ -116,12 +119,12 @@ pub async fn get_database(
 ) -> DatabasesResult<Json<DatabaseResponse>> {
     match state.metastore.get_database(&database_name).await {
         Ok(Some(db)) => Ok(Json(DatabaseResponse { data: db.into() })),
-        Ok(None) => Err(DatabasesAPIError::Get {
-            source: MetastoreError::DatabaseNotFound {
+        Ok(None) => Err(
+            GetSnafu.into_error(Box::new(MetastoreError::DatabaseNotFound {
                 db: database_name.clone(),
-            },
-        }),
-        Err(e) => Err(DatabasesAPIError::Get { source: e }),
+            })),
+        ),
+        Err(e) => Err(e).context(GetSnafu),
     }
 }
 
@@ -154,7 +157,7 @@ pub async fn delete_database(
         .metastore
         .delete_database(&database_name, query.cascade.unwrap_or_default())
         .await
-        .map_err(|e| DatabasesAPIError::Delete { source: e })
+        .context(DeleteSnafu)
 }
 
 #[utoipa::path(
@@ -193,7 +196,7 @@ pub async fn update_database(
         .metastore
         .update_database(&database_name, database)
         .await
-        .map_err(|e| DatabasesAPIError::Update { source: e })
+        .context(UpdateSnafu)
         .map(|o| Json(DatabaseUpdateResponse { data: o.into() }))
 }
 
@@ -230,7 +233,7 @@ pub async fn list_databases(
     let context = QueryContext::default();
     let sql_string = "SELECT * FROM slatedb.public.databases".to_string();
     let sql_string = apply_parameters(&sql_string, parameters, &["database_name", "volume_name"]);
-    let QueryResultData { records, .. } = state
+    let QueryResult { records, .. } = state
         .execution_svc
         .query(&session_id, sql_string.as_str(), context)
         .await

@@ -14,7 +14,7 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use core_executor::models::QueryResultData;
+use core_executor::models::QueryResult;
 use core_executor::query::QueryContext;
 use core_metastore::error::MetastoreError;
 use core_metastore::models::{AwsAccessKeyCredentials, AwsCredentials, Volume as MetastoreVolume};
@@ -94,7 +94,7 @@ pub async fn create_volume(
         .metastore
         .create_volume(&embucket_volume.ident.clone(), embucket_volume)
         .await
-        .map_err(|e| VolumesAPIError::Create { source: e })
+        .map_err(VolumesAPIError::from)
         .map(|o| Json(VolumeCreateResponse { data: o.into() }))
 }
 
@@ -127,12 +127,12 @@ pub async fn get_volume(
         Ok(Some(volume)) => Ok(Json(VolumeResponse {
             data: volume.into(),
         })),
-        Ok(None) => Err(VolumesAPIError::Get {
-            source: MetastoreError::VolumeNotFound {
+        Ok(None) => Err(VolumesAPIError::from(Box::new(
+            MetastoreError::VolumeNotFound {
                 volume: volume_name.clone(),
             },
-        }),
-        Err(e) => Err(VolumesAPIError::Get { source: e }),
+        ))),
+        Err(e) => Err(VolumesAPIError::from(e)),
     }
 }
 
@@ -166,7 +166,7 @@ pub async fn delete_volume(
         .metastore
         .delete_volume(&volume_name, query.cascade.unwrap_or_default())
         .await
-        .map_err(|e| VolumesAPIError::Delete { source: e })
+        .map_err(VolumesAPIError::from)
 }
 
 #[utoipa::path(
@@ -204,7 +204,7 @@ pub async fn update_volume(
         .metastore
         .update_volume(&volume_name, volume)
         .await
-        .map_err(|e| VolumesAPIError::Update { source: e })
+        .map_err(VolumesAPIError::from)
         .map(|o| Json(VolumeUpdateResponse { data: o.into() }))
 }
 
@@ -240,7 +240,7 @@ pub async fn list_volumes(
     let context = QueryContext::default();
     let sql_string = "SELECT * FROM slatedb.public.volumes".to_string();
     let sql_string = apply_parameters(&sql_string, parameters, &["volume_name", "volume_type"]);
-    let QueryResultData { records, .. } = state
+    let QueryResult { records, .. } = state
         .execution_svc
         .query(&session_id, sql_string.as_str(), context)
         .await

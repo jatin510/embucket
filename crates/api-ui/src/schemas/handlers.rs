@@ -14,7 +14,7 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use core_executor::models::QueryResultData;
+use core_executor::models::QueryResult;
 use core_executor::query::QueryContext;
 use core_metastore::error::MetastoreError;
 use core_metastore::models::SchemaIdent as MetastoreSchemaIdent;
@@ -103,7 +103,7 @@ pub async fn create_schema(
                 schema: payload.name.clone(),
             },
         }),
-        Err(e) => Err(SchemasAPIError::Get { source: e }),
+        Err(e) => Err(SchemasAPIError::from(e)),
     }
 }
 
@@ -188,7 +188,7 @@ pub async fn get_schema(
                 schema: schema_name.clone(),
             },
         }),
-        Err(e) => Err(SchemasAPIError::Get { source: e }),
+        Err(e) => Err(SchemasAPIError::from(e)),
     }
 }
 
@@ -226,7 +226,7 @@ pub async fn update_schema(
         .metastore
         .update_schema(&schema_ident, schema.data.into())
         .await
-        .map_err(|e| SchemasAPIError::Update { source: e })
+        .map_err(SchemasAPIError::from)
         .map(|rw_object| {
             Json(SchemaUpdateResponse {
                 data: rw_object.into(),
@@ -272,7 +272,7 @@ pub async fn list_schemas(
         database_name.clone()
     );
     let sql_string = apply_parameters(&sql_string, parameters, &["schema_name", "database_name"]);
-    let QueryResultData { records, .. } = state
+    let QueryResult { records, .. } = state
         .execution_svc
         .query(&session_id, sql_string.as_str(), context)
         .await

@@ -1,7 +1,6 @@
 use crate::query::{QueryContext, UserQuery};
 use crate::session::UserSession;
 
-use crate::error::ExecutionResult;
 use core_metastore::Metastore;
 use core_metastore::SlateDBMetastore;
 use core_metastore::{
@@ -9,11 +8,6 @@ use core_metastore::{
     Volume as MetastoreVolume,
 };
 use datafusion::sql::parser::DFParser;
-use datafusion::sql::sqlparser::ast::{ObjectName, ObjectNamePart};
-use sqlparser::ast::Value;
-use sqlparser::ast::{
-    FunctionArg, FunctionArgExpr, FunctionArgumentList, FunctionArguments, Ident,
-};
 use std::sync::Arc;
 
 #[allow(clippy::unwrap_used)]
@@ -136,27 +130,30 @@ macro_rules! test_query {
         $query:expr
         $(, setup_queries =[$($setup_queries:expr),* $(,)?])?
         $(, sort_all = $sort_all:expr)?
+        $(, exclude_columns = [$($excluded:expr),* $(,)?])?
         $(, snapshot_path = $user_snapshot_path:expr)?
     ) => {
         paste::paste! {
             #[tokio::test]
             async fn [< query_ $test_fn_name >]() {
-                let ctx = crate::tests::query::create_df_session().await;
+                let ctx = $crate::tests::query::create_df_session().await;
 
                 // Execute all setup queries (if provided) to set up the session context
                 $(
                     $(
                         {
-                            let mut q = ctx.query($setup_queries, crate::query::QueryContext::default());
+                            let mut q = ctx.query($setup_queries, $crate::query::QueryContext::default());
                             q.execute().await.unwrap();
                         }
                     )*
                 )?
 
-                let mut query = ctx.query($query, crate::query::QueryContext::default());
+                let mut query = ctx.query($query, $crate::query::QueryContext::default());
                 let res = query.execute().await;
                 let sort_all = false $(|| $sort_all)?;
-
+                let excluded_columns: std::collections::HashSet<&str> = std::collections::HashSet::from([
+                    $($($excluded),*)?
+                ]);
                 let mut settings = insta::Settings::new();
                 settings.set_description(stringify!($query));
                 settings.set_omit_expression(true);
@@ -170,7 +167,11 @@ macro_rules! test_query {
                 settings.bind(|| {
                     let df = match res {
                         Ok(record_batches) => {
-                            let mut batches = record_batches;
+                            let mut batches: Vec<datafusion::arrow::array::RecordBatch> = record_batches.records;
+                            if !excluded_columns.is_empty() {
+                                batches = df_catalog::test_utils::remove_columns_from_batches(batches, &excluded_columns);
+                            }
+
                             if sort_all {
                                 for batch in &mut batches {
                                     *batch = df_catalog::test_utils::sort_record_batch_by_sortable_columns(batch);
@@ -200,6 +201,15 @@ test_query!(
 test_query!(
     create_table_with_timestamp_nanosecond,
     "CREATE TABLE embucket.public.ts_table (ts TIMESTAMP_NTZ(9)) as VALUES ('2025-04-09T21:11:23');"
+);
+
+test_query!(
+    create_table_and_insert,
+    "SELECT * FROM embucket.public.test",
+    setup_queries = [
+        "CREATE TABLE embucket.public.test (id INT)",
+        "INSERT INTO embucket.public.test VALUES (1), (2)",
+    ]
 );
 
 // DROP TABLE
@@ -406,6 +416,7 @@ test_query!(
     alter_session_set,
     "SHOW VARIABLES",
     setup_queries = ["ALTER SESSION SET v1 = 'test'"],
+    exclude_columns = ["created_on", "updated_on", "session_id"],
     snapshot_path = "session"
 );
 test_query!(
@@ -415,6 +426,7 @@ test_query!(
         "ALTER SESSION SET v1 = 'test' v2 = 1",
         "ALTER SESSION UNSET v1"
     ],
+    exclude_columns = ["created_on", "updated_on", "session_id"],
     snapshot_path = "session"
 );
 
@@ -430,6 +442,7 @@ test_query!(
     use_role,
     "SHOW VARIABLES",
     setup_queries = ["USE ROLE test_role"],
+    exclude_columns = ["created_on", "updated_on", "session_id"],
     snapshot_path = "session"
 );
 
@@ -437,24 +450,28 @@ test_query!(
     use_secondary_roles,
     "SHOW VARIABLES",
     setup_queries = ["USE SECONDARY ROLES test_role"],
+    exclude_columns = ["created_on", "updated_on", "session_id"],
     snapshot_path = "session"
 );
 test_query!(
     use_warehouse,
     "SHOW VARIABLES",
     setup_queries = ["USE WAREHOUSE test_warehouse"],
+    exclude_columns = ["created_on", "updated_on", "session_id"],
     snapshot_path = "session"
 );
 test_query!(
     use_database,
     "SHOW VARIABLES",
     setup_queries = ["USE DATABASE test_db"],
+    exclude_columns = ["created_on", "updated_on", "session_id"],
     snapshot_path = "session"
 );
 test_query!(
     use_schema,
     "SHOW VARIABLES",
     setup_queries = ["USE SCHEMA test_schema"],
+    exclude_columns = ["created_on", "updated_on", "session_id"],
     snapshot_path = "session"
 );
 
@@ -463,12 +480,14 @@ test_query!(
     "SHOW VARIABLES",
     setup_queries = ["SET v1 = 'test'", "SET v2 = 1", "SET v3 = true"],
     sort_all = true,
+    exclude_columns = ["created_on", "updated_on", "session_id"],
     snapshot_path = "session"
 );
 test_query!(
     set_variable,
     "SHOW VARIABLES",
     setup_queries = ["SET v1 = 'test'"],
+    exclude_columns = ["created_on", "updated_on", "session_id"],
     snapshot_path = "session"
 );
 test_query!(
@@ -516,3 +535,15 @@ test_query!(
     setup_queries = ["SET datafusion.explain.logical_plan_only = true"],
     snapshot_path = "session"
 );
+
+// TRUNCATE TABLE
+test_query!(truncate_table, "TRUNCATE TABLE employee_table");
+test_query!(
+    truncate_table_full,
+    "TRUNCATE TABLE embucket.public.employee_table"
+);
+test_query!(
+    truncate_table_full_quotes,
+    "TRUNCATE TABLE 'EMBUCKET'.'PUBLIC'.'EMPLOYEE_TABLE'"
+);
+test_query!(truncate_missing, "TRUNCATE TABLE missing_table");
