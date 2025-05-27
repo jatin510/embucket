@@ -230,7 +230,7 @@ mod tests {
         metastore
             .create_database(
                 MetastoreDatabase {
-                    ident: database_name,
+                    ident: database_name.clone(),
                     properties: None,
                     volume: "test_volume".to_string(),
                 },
