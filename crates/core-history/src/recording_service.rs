@@ -217,7 +217,6 @@ mod tests {
 
         metastore
             .create_volume(
-                &"test_volume".to_string(),
                 MetastoreVolume::new(
                     "test_volume".to_string(),
                     core_metastore::VolumeType::Memory,
@@ -230,9 +229,8 @@ mod tests {
 
         metastore
             .create_database(
-                &database_name.clone(),
                 MetastoreDatabase {
-                    ident: "embucket".to_string(),
+                    ident: database_name,
                     properties: None,
                     volume: "test_volume".to_string(),
                 },

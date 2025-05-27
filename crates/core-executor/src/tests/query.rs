@@ -84,7 +84,6 @@ pub async fn create_df_session() -> Arc<UserSession> {
     let metastore = SlateDBMetastore::new_in_memory().await;
     metastore
         .create_volume(
-            &"test_volume".to_string(),
             MetastoreVolume::new(
                 "test_volume".to_string(),
                 core_metastore::VolumeType::Memory,
@@ -94,7 +93,6 @@ pub async fn create_df_session() -> Arc<UserSession> {
         .expect("Failed to create volume");
     metastore
         .create_database(
-            &"embucket".to_string(),
             MetastoreDatabase {
                 ident: "embucket".to_string(),
                 properties: None,

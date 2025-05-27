@@ -51,7 +51,6 @@ async fn test_service_upload_file() {
 
     metastore
         .create_volume(
-            &"test_volume".to_string(),
             MetastoreVolume::new(
                 "test_volume".to_string(),
                 core_metastore::VolumeType::Memory,
@@ -61,7 +60,6 @@ async fn test_service_upload_file() {
         .expect("Failed to create volume");
     metastore
         .create_database(
-            &"embucket".to_string(),
             MetastoreDatabase {
                 ident: "embucket".to_string(),
                 properties: None,
@@ -182,7 +180,6 @@ async fn test_service_create_table_file_volume() {
     let temp_path = temp_dir.to_str().expect("Failed to convert path to string");
     metastore
         .create_volume(
-            &"test_volume".to_string(),
             MetastoreVolume::new(
                 "test_volume".to_string(),
                 core_metastore::VolumeType::File(core_metastore::FileVolume {
@@ -194,7 +191,6 @@ async fn test_service_create_table_file_volume() {
         .expect("Failed to create volume");
     metastore
         .create_database(
-            &"embucket".to_string(),
             MetastoreDatabase {
                 ident: "embucket".to_string(),
                 properties: None,

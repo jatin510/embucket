@@ -350,7 +350,6 @@ mod tests {
         let metastore = SlateDBMetastore::new_in_memory().await;
         metastore
             .create_volume(
-                &"test_volume".to_string(),
                 MetastoreVolume::new(
                     "test_volume".to_string(),
                     core_metastore::VolumeType::Memory,
@@ -360,7 +359,6 @@ mod tests {
             .expect("Failed to create volume");
         metastore
             .create_database(
-                &"benchmark".to_string(),
                 MetastoreDatabase {
                     ident: "benchmark".to_string(),
                     properties: None,
