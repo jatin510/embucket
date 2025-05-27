@@ -4,9 +4,9 @@ use crate::{
     error::ErrorResponse,
     volumes::error::{VolumesAPIError, VolumesResult},
     volumes::models::{
-        FileVolume, S3TablesVolume, S3Volume, SimpleVolume, Volume, VolumeCreatePayload,
-        VolumeCreateResponse, VolumeResponse, VolumeType, VolumeUpdatePayload,
-        VolumeUpdateResponse, VolumesResponse,
+        FileVolume, S3TablesVolume, S3Volume, Volume, VolumeCreatePayload, VolumeCreateResponse,
+        VolumePayload, VolumeResponse, VolumeType, VolumeUpdatePayload, VolumeUpdateResponse,
+        VolumesResponse,
     },
 };
 use api_sessions::DFSessionId;
@@ -14,7 +14,7 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use core_executor::models::QueryResultData;
+use core_executor::models::QueryResult;
 use core_executor::query::QueryContext;
 use core_metastore::error::MetastoreError;
 use core_metastore::models::{AwsAccessKeyCredentials, AwsCredentials, Volume as MetastoreVolume};
@@ -34,8 +34,8 @@ use validator::Validate;
         schemas(
             VolumeCreatePayload,
             VolumeCreateResponse,
+            VolumePayload,
             Volume,
-            SimpleVolume,
             VolumeType,
             S3Volume,
             S3TablesVolume,
@@ -45,6 +45,7 @@ use validator::Validate;
             VolumeResponse,
             VolumesResponse,
             ErrorResponse,
+            OrderDirection,
         )
     ),
     tags(
@@ -94,11 +95,7 @@ pub async fn create_volume(
         .create_volume(embucket_volume)
         .await
         .map_err(|e| VolumesAPIError::Create { source: e })
-        .map(|o| {
-            Json(VolumeCreateResponse {
-                data: o.data.into(),
-            })
-        })
+        .map(|o| Json(VolumeCreateResponse { data: o.into() }))
 }
 
 #[utoipa::path(
@@ -208,11 +205,7 @@ pub async fn update_volume(
         .update_volume(volume)
         .await
         .map_err(|e| VolumesAPIError::Update { source: e })
-        .map(|o| {
-            Json(VolumeUpdateResponse {
-                data: o.data.into(),
-            })
-        })
+        .map(|o| Json(VolumeUpdateResponse { data: o.into() }))
 }
 
 #[utoipa::path(
@@ -247,7 +240,7 @@ pub async fn list_volumes(
     let context = QueryContext::default();
     let sql_string = "SELECT * FROM slatedb.public.volumes".to_string();
     let sql_string = apply_parameters(&sql_string, parameters, &["volume_name", "volume_type"]);
-    let QueryResultData { records, .. } = state
+    let QueryResult { records, .. } = state
         .execution_svc
         .query(&session_id, sql_string.as_str(), context)
         .await
@@ -263,7 +256,7 @@ pub async fn list_volumes(
         let updated_at_timestamps = downcast_string_column(&record, "updated_at")
             .map_err(|e| VolumesAPIError::List { source: e })?;
         for i in 0..record.num_rows() {
-            items.push(SimpleVolume {
+            items.push(Volume {
                 name: volume_names.value(i).to_string(),
                 r#type: volume_types.value(i).to_string(),
                 created_at: created_at_timestamps.value(i).to_string(),

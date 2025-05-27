@@ -5,8 +5,8 @@ use crate::{
     error::ErrorResponse,
     schemas::error::{SchemasAPIError, SchemasResult},
     schemas::models::{
-        Schema, SchemaCreatePayload, SchemaCreateResponse, SchemaResponse, SchemaUpdatePayload,
-        SchemaUpdateResponse, SchemasResponse,
+        Schema, SchemaCreatePayload, SchemaCreateResponse, SchemaPayload, SchemaResponse,
+        SchemaUpdatePayload, SchemaUpdateResponse, SchemasResponse,
     },
 };
 use api_sessions::DFSessionId;
@@ -14,7 +14,7 @@ use axum::{
     Json,
     extract::{Path, Query, State},
 };
-use core_executor::models::QueryResultData;
+use core_executor::models::QueryResult;
 use core_executor::query::QueryContext;
 use core_metastore::error::MetastoreError;
 use core_metastore::models::SchemaIdent as MetastoreSchemaIdent;
@@ -36,8 +36,10 @@ use utoipa::OpenApi;
             SchemaCreatePayload,
             SchemaCreateResponse,
             SchemasResponse,
+            SchemaPayload,
             Schema,
             ErrorResponse,
+            OrderDirection,
         )
     ),
     tags(
@@ -93,7 +95,7 @@ pub async fn create_schema(
     let schema_ident = MetastoreSchemaIdent::new(database_name.clone(), payload.name.clone());
     match state.metastore.get_schema(&schema_ident).await {
         Ok(Some(rw_object)) => Ok(Json(SchemaCreateResponse {
-            data: Schema::from(rw_object),
+            data: rw_object.into(),
         })),
         Ok(None) => Err(SchemasAPIError::Get {
             source: MetastoreError::SchemaNotFound {
@@ -178,7 +180,7 @@ pub async fn get_schema(
     };
     match state.metastore.get_schema(&schema_ident).await {
         Ok(Some(rw_object)) => Ok(Json(SchemaResponse {
-            data: Schema::from(rw_object),
+            data: rw_object.into(),
         })),
         Ok(None) => Err(SchemasAPIError::Get {
             source: MetastoreError::SchemaNotFound {
@@ -227,7 +229,7 @@ pub async fn update_schema(
         .map_err(|e| SchemasAPIError::Update { source: e })
         .map(|rw_object| {
             Json(SchemaUpdateResponse {
-                data: Schema::from(rw_object),
+                data: rw_object.into(),
             })
         })
 }
@@ -270,7 +272,7 @@ pub async fn list_schemas(
         database_name.clone()
     );
     let sql_string = apply_parameters(&sql_string, parameters, &["schema_name", "database_name"]);
-    let QueryResultData { records, .. } = state
+    let QueryResult { records, .. } = state
         .execution_svc
         .query(&session_id, sql_string.as_str(), context)
         .await

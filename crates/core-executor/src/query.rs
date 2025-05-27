@@ -13,12 +13,13 @@ use datafusion::catalog::{CatalogProvider, SchemaProvider};
 use datafusion::datasource::default_table_source::provider_as_source;
 use datafusion::execution::session_state::SessionContextProvider;
 use datafusion::execution::session_state::SessionState;
-use datafusion::logical_expr::{LogicalPlan, TableSource, sqlparser::ast::Insert};
+use datafusion::logical_expr::{LogicalPlan, TableSource};
 use datafusion::prelude::CsvReadOptions;
+use datafusion::scalar::ScalarValue;
 use datafusion::sql::parser::{CreateExternalTable, DFParser, Statement as DFStatement};
 use datafusion::sql::sqlparser::ast::{
     CreateTable as CreateTableStatement, Expr, Ident, ObjectName, Query, SchemaName, Statement,
-    TableFactor, TableObject, TableWithJoins,
+    TableFactor, TableWithJoins,
 };
 use datafusion::sql::statement::object_name_to_string;
 use datafusion_common::{
@@ -39,7 +40,7 @@ use snafu::ResultExt;
 use sqlparser::ast::helpers::attached_token::AttachedToken;
 use sqlparser::ast::{
     BinaryOperator, GroupByExpr, MergeAction, MergeClauseKind, MergeInsertKind, ObjectNamePart,
-    ObjectType, Query as AstQuery, Select, SelectItem, ShowObjects, ShowStatementFilter,
+    ObjectType, PivotValueSource, Select, SelectItem, ShowObjects, ShowStatementFilter,
     ShowStatementIn, UpdateTableFromKind, Use, Value,
 };
 use std::collections::HashMap;
@@ -55,10 +56,8 @@ use super::error::{self as ex_error, ExecutionError, ExecutionResult, RefreshCat
 use super::session::{SessionProperty, UserSession};
 use super::utils::{NormalizedIdent, is_logical_plan_effectively_empty};
 use crate::datafusion::visitors::{copy_into_identifiers, functions_rewriter, json_element};
+use crate::models::QueryResult;
 use df_catalog::catalog::CachingCatalog;
-use df_catalog::catalogs::slatedb::schema::{
-    SLATEDB_CATALOG, SLATEDB_SCHEMA, SlateDBViewSchemaProvider,
-};
 use tracing_attributes::instrument;
 
 #[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -94,7 +93,7 @@ pub struct UserQuery {
 
 pub enum IcebergCatalogResult {
     Catalog(Arc<dyn Catalog>),
-    Result(ExecutionResult<Vec<RecordBatch>>),
+    Result(ExecutionResult<QueryResult>),
 }
 
 impl UserQuery {
@@ -169,7 +168,7 @@ impl UserQuery {
     }
 
     #[instrument(level = "debug", skip(self), err, ret(level = tracing::Level::TRACE))]
-    pub async fn execute(&mut self) -> ExecutionResult<Vec<RecordBatch>> {
+    pub async fn execute(&mut self) -> ExecutionResult<QueryResult> {
         let statement = self.parse_query().context(super::error::DataFusionSnafu)?;
         self.query = statement.to_string();
 
@@ -237,8 +236,7 @@ impl UserQuery {
                     return status_response();
                 }
                 Statement::CreateTable { .. } => {
-                    let result = Box::pin(self.create_table_query(*s)).await;
-                    return result;
+                    return Box::pin(self.create_table_query(*s)).await;
                 }
                 Statement::CreateDatabase { .. } => {
                     // TODO: Databases are only able to be created through the
@@ -287,6 +285,7 @@ impl UserQuery {
                 Statement::Query(mut subquery) => {
                     self.update_qualify_in_query(subquery.as_mut());
                     Self::update_table_result_scan_in_query(subquery.as_mut());
+                    self.traverse_and_update_query(subquery.as_mut()).await;
                     return Box::pin(self.execute_with_custom_plan(&subquery.to_string())).await;
                 }
                 Statement::Drop { .. } => {
@@ -371,7 +370,7 @@ impl UserQuery {
     }
 
     #[instrument(level = "trace", skip(self), err, ret)]
-    pub async fn drop_query(&self, statement: Statement) -> ExecutionResult<Vec<RecordBatch>> {
+    pub async fn drop_query(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let Statement::Drop {
             names, object_type, ..
         } = statement.clone()
@@ -431,10 +430,7 @@ impl UserQuery {
 
     #[allow(clippy::redundant_else, clippy::too_many_lines)]
     #[instrument(level = "trace", skip(self), err, ret)]
-    pub async fn create_table_query(
-        &self,
-        statement: Statement,
-    ) -> ExecutionResult<Vec<RecordBatch>> {
+    pub async fn create_table_query(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let Statement::CreateTable(mut create_table_statement) = statement.clone() else {
             return Err(ExecutionError::DataFusion {
                 source: DataFusionError::NotImplemented(
@@ -533,7 +529,7 @@ impl UserQuery {
         ident: MetastoreTableIdent,
         statement: CreateTableStatement,
         plan: LogicalPlan,
-    ) -> ExecutionResult<Vec<RecordBatch>> {
+    ) -> ExecutionResult<QueryResult> {
         let iceberg_catalog = match self
             .resolve_iceberg_catalog_or_execute(catalog, catalog_name, plan.clone())
             .await
@@ -610,7 +606,7 @@ impl UserQuery {
     pub async fn create_external_table_query(
         &self,
         statement: CreateExternalTable,
-    ) -> ExecutionResult<Vec<RecordBatch>> {
+    ) -> ExecutionResult<QueryResult> {
         let table_location = statement.location.clone();
         let table_format = MetastoreTableFormat::from(statement.file_type);
         let session_context = HashMap::new();
@@ -679,10 +675,7 @@ impl UserQuery {
     /// - We don't need to create table in case we have common shared session context.
     ///   CSV is registered as a table which can referenced from SQL statements executed against this context
     /// - Revisit this with the new metastore approach
-    pub async fn create_stage_query(
-        &self,
-        statement: Statement,
-    ) -> ExecutionResult<Vec<RecordBatch>> {
+    pub async fn create_stage_query(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let Statement::CreateStage {
             name,
             stage_params,
@@ -788,7 +781,7 @@ impl UserQuery {
     pub async fn copy_into_snowflake_query(
         &self,
         statement: Statement,
-    ) -> ExecutionResult<Vec<RecordBatch>> {
+    ) -> ExecutionResult<QueryResult> {
         let Statement::CopyIntoSnowflake { into, from_obj, .. } = statement else {
             return Err(ExecutionError::DataFusion {
                 source: DataFusionError::NotImplemented(
@@ -817,7 +810,7 @@ impl UserQuery {
     }
 
     #[instrument(level = "trace", skip(self), err, ret)]
-    pub async fn merge_query(&self, statement: Statement) -> ExecutionResult<Vec<RecordBatch>> {
+    pub async fn merge_query(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let Statement::Merge {
             table,
             mut source,
@@ -903,7 +896,7 @@ impl UserQuery {
     }
 
     #[instrument(level = "trace", skip(self), err, ret)]
-    pub async fn create_schema(&self, statement: Statement) -> ExecutionResult<Vec<RecordBatch>> {
+    pub async fn create_schema(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let Statement::CreateSchema {
             schema_name,
             if_not_exists,
@@ -968,7 +961,7 @@ impl UserQuery {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub async fn show_query(&self, statement: Statement) -> ExecutionResult<Vec<RecordBatch>> {
+    pub async fn show_query(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let query = match statement {
             Statement::ShowDatabases { .. } => {
                 format!(
@@ -1223,41 +1216,43 @@ impl UserQuery {
             .context(super::error::DataFusionSnafu)
     }
 
-    async fn execute_sql(&self, query: &str) -> ExecutionResult<Vec<RecordBatch>> {
+    async fn execute_sql(&self, query: &str) -> ExecutionResult<QueryResult> {
         let session = self.session.clone();
         let query = query.to_string();
         let stream = self
             .session
             .executor
             .spawn(async move {
-                session
+                let df = session
                     .ctx
                     .sql(&query)
                     .await
-                    .context(super::error::DataFusionSnafu)?
-                    .collect()
-                    .await
-                    .context(super::error::DataFusionSnafu)
+                    .context(super::error::DataFusionSnafu)?;
+                let schema = df.schema().as_arrow().clone();
+                let records = df.collect().await.context(super::error::DataFusionSnafu)?;
+                Ok(QueryResult::new(records, Arc::new(schema)))
             })
             .await
             .context(super::error::JobSnafu)??;
         Ok(stream)
     }
 
-    async fn execute_logical_plan(&self, plan: LogicalPlan) -> ExecutionResult<Vec<RecordBatch>> {
+    async fn execute_logical_plan(&self, plan: LogicalPlan) -> ExecutionResult<QueryResult> {
         let session = self.session.clone();
         let stream = self
             .session
             .executor
             .spawn(async move {
-                session
+                let schema = plan.schema().as_arrow().clone();
+                let records = session
                     .ctx
                     .execute_logical_plan(plan)
                     .await
                     .context(super::error::DataFusionSnafu)?
                     .collect()
                     .await
-                    .context(super::error::DataFusionSnafu)
+                    .context(super::error::DataFusionSnafu)?;
+                Ok(QueryResult::new(records, Arc::new(schema)))
             })
             .await
             .context(super::error::JobSnafu)??;
@@ -1265,7 +1260,7 @@ impl UserQuery {
     }
 
     #[instrument(level = "trace", skip(self), err, ret)]
-    pub async fn execute_with_custom_plan(&self, query: &str) -> ExecutionResult<Vec<RecordBatch>> {
+    pub async fn execute_with_custom_plan(&self, query: &str) -> ExecutionResult<QueryResult> {
         let plan = self.get_custom_logical_plan(query).await?;
         self.execute_logical_plan(plan).await
     }
@@ -1393,13 +1388,6 @@ impl UserQuery {
                 resolved_ref.catalog,
             )));
         }
-
-        if *resolved_ref.catalog == *SLATEDB_CATALOG && *resolved_ref.schema == *SLATEDB_SCHEMA {
-            return Ok(Arc::new(SlateDBViewSchemaProvider::new(Arc::clone(
-                &self.metastore,
-            ))));
-        }
-
         self.session
             .ctx
             .state()
@@ -1604,6 +1592,152 @@ impl UserQuery {
         }
     }
 
+    fn convert_batches_to_exprs(batches: Vec<RecordBatch>) -> Vec<sqlparser::ast::ExprWithAlias> {
+        let mut exprs = Vec::new();
+        for batch in batches {
+            if batch.num_columns() > 0 {
+                let column = batch.column(0);
+                for row_idx in 0..batch.num_rows() {
+                    if !column.is_null(row_idx) {
+                        if let Ok(scalar_value) = ScalarValue::try_from_array(column, row_idx) {
+                            let expr = if batch.schema().fields()[0].data_type().is_numeric() {
+                                Expr::Value(
+                                    Value::Number(scalar_value.to_string(), false)
+                                        .with_empty_span(),
+                                )
+                            } else {
+                                Expr::Value(
+                                    Value::SingleQuotedString(scalar_value.to_string())
+                                        .with_empty_span(),
+                                )
+                            };
+
+                            exprs.push(sqlparser::ast::ExprWithAlias { expr, alias: None });
+                        }
+                    }
+                }
+            }
+        }
+        exprs
+    }
+
+    // This function is used to update the table references in the query
+    // It executes the subquery and convert the result to a list of string expressions
+    // It then replaces the pivot value source with the list of string expressions
+    async fn replace_pivot_subquery_with_list(
+        &self,
+        table: &Box<TableFactor>,
+        value_column: &mut Vec<Ident>,
+        value_source: &mut PivotValueSource,
+    ) {
+        match value_source {
+            PivotValueSource::Any(order_by_expr) => {
+                let col = value_column
+                    .iter()
+                    .map(|col| col.to_string())
+                    .collect::<Vec<_>>()
+                    .join(".");
+                let mut query = format!("SELECT DISTINCT {col} FROM {table} ");
+
+                if !order_by_expr.is_empty() {
+                    let order_by_clause = order_by_expr
+                        .iter()
+                        .map(|expr| {
+                            let direction = match expr.options.asc {
+                                Some(true) => " ASC",
+                                Some(false) => " DESC",
+                                None => "",
+                            };
+
+                            let nulls = match expr.options.nulls_first {
+                                Some(true) => " NULLS FIRST",
+                                Some(false) => " NULLS LAST",
+                                None => "",
+                            };
+
+                            format!("{}{}{}", expr.expr, direction, nulls)
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+
+                    query.push_str(&format!("ORDER BY {}", order_by_clause));
+                }
+
+                let result = self.execute_with_custom_plan(&query).await;
+                if let Ok(batches) = result {
+                    *value_source =
+                        PivotValueSource::List(Self::convert_batches_to_exprs(batches.records));
+                }
+            }
+            PivotValueSource::Subquery(subquery) => {
+                let subquery_sql = subquery.to_string();
+
+                let result = self.execute_with_custom_plan(&subquery_sql).await;
+
+                if let Ok(batches) = result {
+                    *value_source =
+                        PivotValueSource::List(Self::convert_batches_to_exprs(batches.records));
+                }
+            }
+            PivotValueSource::List(_) => {
+                // Do nothing
+            }
+        }
+    }
+
+    /// This method traverses query including set expressions and updates it when needed.
+    fn traverse_and_update_query<'a>(
+        &'a self,
+        query: &'a mut Query,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            fn process_set_expr<'a>(
+                this: &'a UserQuery,
+                set_expr: &'a mut sqlparser::ast::SetExpr,
+            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+                Box::pin(async move {
+                    match set_expr {
+                        sqlparser::ast::SetExpr::Select(select) => {
+                            for table_with_joins in &mut select.from {
+                                if let TableFactor::Pivot {
+                                    table,
+                                    value_column,
+                                    value_source,
+                                    ..
+                                } = &mut table_with_joins.relation
+                                {
+                                    this.replace_pivot_subquery_with_list(
+                                        table,
+                                        value_column,
+                                        value_source,
+                                    )
+                                    .await;
+                                }
+                            }
+                        }
+
+                        sqlparser::ast::SetExpr::Query(inner_query) => {
+                            this.traverse_and_update_query(inner_query).await;
+                        }
+                        sqlparser::ast::SetExpr::SetOperation { left, right, .. } => {
+                            process_set_expr(this, left).await;
+                            process_set_expr(this, right).await;
+                        }
+                        _ => {}
+                    }
+                })
+            }
+
+            process_set_expr(self, &mut query.body).await;
+
+            if let Some(with) = &mut query.with {
+                for cte in &mut with.cte_tables {
+                    self.traverse_and_update_query(&mut cte.query).await;
+                }
+            }
+        })
+    }
+
     #[allow(clippy::only_used_in_recursion)]
     fn get_expr_where_clause(&self, expr: Expr, target_alias: &str) -> Vec<String> {
         match expr {
@@ -1673,169 +1807,6 @@ impl UserQuery {
                 _ => references.first().cloned(),
             },
             _ => references.first().cloned(),
-        }
-    }
-
-    // TODO: Modify this function to modify the statement in-place to
-    // avoid extra allocations
-    #[allow(clippy::too_many_lines)]
-    pub fn update_statement_references(
-        &self,
-        statement: DFStatement,
-    ) -> ExecutionResult<DFStatement> {
-        match statement.clone() {
-            DFStatement::CreateExternalTable(create_external) => {
-                let table_name = self.resolve_table_object_name(create_external.name.0)?;
-                let modified_statement = CreateExternalTable {
-                    name: ObjectName::from(table_name.0),
-                    ..create_external
-                };
-                Ok(DFStatement::CreateExternalTable(modified_statement))
-            }
-            DFStatement::Statement(s) => match *s {
-                Statement::AlterTable {
-                    name,
-                    if_exists,
-                    only,
-                    operations,
-                    location,
-                    on_cluster,
-                } => {
-                    let name = self.resolve_table_object_name(name.0)?;
-                    let modified_statement = Statement::AlterTable {
-                        name: ObjectName::from(name.0),
-                        if_exists,
-                        only,
-                        operations,
-                        location,
-                        on_cluster,
-                    };
-                    Ok(DFStatement::Statement(Box::new(modified_statement)))
-                }
-                Statement::Insert(insert_statement) => {
-                    // Extract ObjectName from TableObject
-                    let obj_name = match &insert_statement.table {
-                        TableObject::TableName(obj_name) => obj_name.clone(),
-                        TableObject::TableFunction(_) => {
-                            return Err(ExecutionError::DataFusion {
-                                source: DataFusionError::NotImplemented(
-                                    "Table functions are not supported in INSERT statements"
-                                        .to_string(),
-                                ),
-                            });
-                        }
-                    };
-
-                    let table_name = self.resolve_table_object_name(obj_name.0)?;
-
-                    let source = insert_statement.source.map(|mut query| {
-                        self.update_tables_in_query(query.as_mut())
-                            .map(|()| Some(Box::new(AstQuery { ..*query })))
-                    });
-
-                    let source = if let Some(source) = source {
-                        source?
-                    } else {
-                        None
-                    };
-
-                    let modified_statement = Insert {
-                        table: TableObject::TableName(ObjectName::from(table_name.0)),
-                        source,
-                        ..insert_statement
-                    };
-                    Ok(DFStatement::Statement(Box::new(Statement::Insert(
-                        modified_statement,
-                    ))))
-                }
-                Statement::Drop {
-                    object_type,
-                    if_exists,
-                    mut names,
-                    cascade,
-                    restrict,
-                    purge,
-                    temporary,
-                } => {
-                    for name in &mut names {
-                        match object_type {
-                            ObjectType::Schema => {
-                                // TODO: Check if this works the same way as the table case
-                                let schema_name =
-                                    self.resolve_schema_object_name(name.0.clone())?;
-                                *name = ObjectName(
-                                    schema_name
-                                        .0
-                                        .iter()
-                                        .map(|i| ObjectNamePart::Identifier(i.clone()))
-                                        .collect(),
-                                );
-                            }
-                            ObjectType::Table => {
-                                *name = ObjectName::from(
-                                    self.resolve_table_object_name(name.0.clone())?.0,
-                                );
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    let modified_statement = Statement::Drop {
-                        object_type,
-                        if_exists,
-                        names,
-                        cascade,
-                        restrict,
-                        purge,
-                        temporary,
-                    };
-                    Ok(DFStatement::Statement(Box::new(modified_statement)))
-                }
-                Statement::Query(mut query) => {
-                    self.update_tables_in_query(query.as_mut())?;
-                    // self.update_tables_in_query(&mut query)?;
-                    Ok(DFStatement::Statement(Box::new(Statement::Query(query))))
-                }
-                Statement::CreateTable(mut create_table_statement) => {
-                    // Remove all unsupported iceberg params (we already take them into account)
-                    create_table_statement.iceberg = false;
-                    create_table_statement.base_location = None;
-                    create_table_statement.external_volume = None;
-                    create_table_statement.catalog = None;
-                    create_table_statement.catalog_sync = None;
-                    create_table_statement.storage_serialization_policy = None;
-                    if let Some(ref mut query) = create_table_statement.query {
-                        self.update_tables_in_query(query)?;
-                    }
-                    Ok(DFStatement::Statement(Box::new(Statement::CreateTable(
-                        create_table_statement,
-                    ))))
-                }
-                Statement::Update {
-                    mut table,
-                    assignments,
-                    mut from,
-                    selection,
-                    returning,
-                    or,
-                } => {
-                    self.update_tables_in_table_with_joins(&mut table)?;
-                    if let Some(from) = from.as_mut() {
-                        self.update_tables_in_update_table_from_kind(from)?;
-                    }
-                    let modified_statement = Statement::Update {
-                        table,
-                        assignments,
-                        from,
-                        selection,
-                        returning,
-                        or,
-                    };
-                    Ok(DFStatement::Statement(Box::new(modified_statement)))
-                }
-                _ => Ok(statement),
-            },
-            _ => Ok(statement),
         }
     }
 
@@ -2051,23 +2022,29 @@ fn apply_show_filters(sql: String, filters: &[String]) -> String {
     }
 }
 
-pub fn created_entity_response() -> ExecutionResult<Vec<RecordBatch>> {
+pub fn created_entity_response() -> ExecutionResult<QueryResult> {
     let schema = Arc::new(ArrowSchema::new(vec![Field::new(
         "count",
         DataType::Int64,
         false,
     )]));
-    Ok(vec![
-        RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![0]))])
-            .context(ex_error::ArrowSnafu)?,
-    ])
+    Ok(QueryResult::new(
+        vec![
+            RecordBatch::try_new(schema.clone(), vec![Arc::new(Int64Array::from(vec![0]))])
+                .context(ex_error::ArrowSnafu)?,
+        ],
+        schema,
+    ))
 }
 
-pub fn status_response() -> ExecutionResult<Vec<RecordBatch>> {
+pub fn status_response() -> ExecutionResult<QueryResult> {
     let schema = Arc::new(ArrowSchema::new(vec![Field::new(
         "status",
         DataType::Utf8,
         false,
     )]));
-    Ok(vec![RecordBatch::new_empty(schema)])
+    Ok(QueryResult::new(
+        vec![RecordBatch::new_empty(schema.clone())],
+        schema,
+    ))
 }

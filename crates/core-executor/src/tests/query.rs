@@ -1,6 +1,7 @@
 use crate::query::{QueryContext, UserQuery};
 use crate::session::UserSession;
 
+use crate::error::{ExecutionError, ExecutionResult};
 use core_metastore::Metastore;
 use core_metastore::SlateDBMetastore;
 use core_metastore::{
@@ -134,7 +135,7 @@ macro_rules! test_query {
         paste::paste! {
             #[tokio::test]
             async fn [< query_ $test_fn_name >]() {
-                let ctx = create_df_session().await;
+                let ctx = crate::tests::query::create_df_session().await;
 
                 // Execute all setup queries (if provided) to set up the session context
                 $(
@@ -162,13 +163,14 @@ macro_rules! test_query {
                 }
                 settings.bind(|| {
                     let df = match res {
-                        Ok(mut record_batches) => {
+                        Ok(record_batches) => {
+                            let mut batches: Vec<datafusion::arrow::array::RecordBatch> = record_batches.records;
                             if sort_all {
-                                for batch in &mut record_batches {
-                                    *batch = sort_record_batch_by_sortable_columns(batch);
+                                for batch in &mut batches {
+                                    *batch = df_catalog::test_utils::sort_record_batch_by_sortable_columns(batch);
                                 }
                             }
-                            Ok(datafusion::arrow::util::pretty::pretty_format_batches(&record_batches).unwrap().to_string())
+                            Ok(datafusion::arrow::util::pretty::pretty_format_batches(&batches).unwrap().to_string())
                         },
                         Err(e) => Err(format!("Error: {e}"))
                     };
@@ -192,6 +194,15 @@ test_query!(
 test_query!(
     create_table_with_timestamp_nanosecond,
     "CREATE TABLE embucket.public.ts_table (ts TIMESTAMP_NTZ(9)) as VALUES ('2025-04-09T21:11:23');"
+);
+
+test_query!(
+    create_table_and_insert,
+    "SELECT * FROM embucket.public.test",
+    setup_queries = [
+        "CREATE TABLE embucket.public.test (id INT)",
+        "INSERT INTO embucket.public.test VALUES (1), (2)",
+    ]
 );
 
 // DROP TABLE

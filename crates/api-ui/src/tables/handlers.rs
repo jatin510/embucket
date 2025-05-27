@@ -9,14 +9,17 @@ use crate::tables::models::{
     TablePreviewDataResponse, TablePreviewDataRow, TableStatistics, TableStatisticsResponse,
     TableUploadPayload, TableUploadResponse, TablesResponse, UploadParameters,
 };
-use crate::{SearchParameters, apply_parameters, downcast_int64_column, downcast_string_column};
+use crate::{
+    OrderDirection, SearchParameters, apply_parameters, downcast_int64_column,
+    downcast_string_column,
+};
 use api_sessions::DFSessionId;
 use axum::extract::Query;
 use axum::{
     Json,
     extract::{Multipart, Path, State},
 };
-use core_executor::{models::QueryResultData, query::QueryContext};
+use core_executor::{models::QueryResult, query::QueryContext};
 use core_metastore::TableIdent as MetastoreTableIdent;
 use core_metastore::error::MetastoreError;
 use datafusion::arrow::csv::reader::Format;
@@ -49,6 +52,8 @@ use utoipa::OpenApi;
             TableUploadResponse,
             TablesResponse,
             ErrorResponse,
+            OrderDirection,
+            Table,
         )
     ),
     tags(
@@ -155,11 +160,12 @@ pub async fn get_table_columns(
 ) -> TablesResult<Json<TableColumnsResponse>> {
     let context = QueryContext::new(Some(database.clone()), Some(schema.clone()), None);
     let sql_string = format!("SELECT * FROM {database}.{schema}.{table} LIMIT 0");
-    let QueryResultData { columns_info, .. } = state
+    let columns_info = state
         .execution_svc
         .query(&session_id, sql_string.as_str(), context)
         .await
-        .map_err(|e| TablesAPIError::Execution { source: e })?;
+        .map_err(|e| TablesAPIError::Execution { source: e })?
+        .column_info();
     let items: Vec<TableColumn> = columns_info
         .iter()
         .map(|column_info| TableColumn {
@@ -220,7 +226,7 @@ pub async fn get_table_preview_data(
     let sql_string = parameters.limit.map_or(sql_string.clone(), |limit| {
         format!("{sql_string} LIMIT {limit}")
     });
-    let QueryResultData {
+    let QueryResult {
         records: batches, ..
     } = state
         .execution_svc
@@ -356,9 +362,11 @@ pub async fn upload_file(
     params(
         ("databaseName" = String, description = "Database Name"),
         ("schemaName" = String, description = "Schema Name"),
-        ("cursor" = Option<String>, Query, description = "Tables cursor"),
+        ("offset" = Option<usize>, Query, description = "Tables offset"),
         ("limit" = Option<usize>, Query, description = "Tables limit"),
-        ("search" = Option<String>, Query, description = "Tables search (start with)"),
+        ("search" = Option<String>, Query, description = "Tables search"),
+        ("order_by" = Option<String>, Query, description = "Order by: table_name (default), schema_name, database_name, volume_name, table_type, table_format, owner, created_at, updated_at"),
+        ("order_direction" = Option<OrderDirection>, Query, description = "Order direction: ASC, DESC (default)"),
     ),
     operation_id = "getTables",
     tags = ["tables"],
@@ -399,7 +407,7 @@ pub async fn get_tables(
             "owner",
         ],
     );
-    let QueryResultData { records, .. } = state
+    let QueryResult { records, .. } = state
         .execution_svc
         .query(&session_id, sql_string.as_str(), context)
         .await
