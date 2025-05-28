@@ -6,11 +6,12 @@ import { Button } from '@/components/ui/button';
 import { useGetVolumes } from '@/orval/volumes';
 
 import { CreateVolumeDialog } from '../shared/create-volume-dialog/create-volume-dialog';
-import { DataPageContent } from '../shared/data-page/data-page-content';
-import { DataPageHeader } from '../shared/data-page/data-page-header';
+import { PageEmptyContainer } from '../shared/page/page-empty-container';
+import { PageHeader } from '../shared/page/page-header';
+import { PageScrollArea } from '../shared/page/page-scroll-area';
 import { VolumesTable } from './volumes-page-table';
+import { VolumesPageToolbar } from './volumes-page-toolbar';
 
-// TODO: Not a data page
 export function VolumesPage() {
   const [opened, setOpened] = useState(false);
 
@@ -18,22 +19,28 @@ export function VolumesPage() {
 
   return (
     <>
-      <DataPageHeader
+      <PageHeader
         title="Volumes"
-        secondaryText={`${volumes?.length} volumes found`}
         Action={
-          <Button disabled={isFetching} onClick={() => setOpened(true)}>
+          <Button size="sm" disabled={isFetching} onClick={() => setOpened(true)}>
             Add Volume
           </Button>
         }
       />
-      <DataPageContent
-        isEmpty={!volumes?.length}
-        Table={<VolumesTable volumes={volumes ?? []} isLoading={isFetching} />}
-        emptyStateIcon={Box}
-        emptyStateTitle="No Volumes Found"
-        emptyStateDescription="No volumes have been created yet. Create a volume to get started."
-      />
+      {!volumes?.length ? (
+        <PageEmptyContainer
+          Icon={Box}
+          title="No Volumes Found"
+          description="No volumes have been created yet. Create a volume to get started."
+        />
+      ) : (
+        <>
+          <VolumesPageToolbar volumes={volumes} isFetchingVolumes={isFetching} />
+          <PageScrollArea>
+            <VolumesTable volumes={volumes} isLoading={isFetching} />
+          </PageScrollArea>
+        </>
+      )}
       <CreateVolumeDialog opened={opened} onSetOpened={setOpened} />
     </>
   );

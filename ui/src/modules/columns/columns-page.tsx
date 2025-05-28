@@ -9,11 +9,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs2'
 import { TableDataUploadDialog } from '@/modules/shared/table-data-upload-dialog/table-data-upload-dialog';
 import { useGetTableColumns, useGetTablePreviewData } from '@/orval/tables';
 
-import { DataPageContent } from '../shared/data-page/data-page-content';
-import { DataPageHeader } from '../shared/data-page/data-page-header';
 import { DataPageTrees } from '../shared/data-page/data-page-trees';
 import { DataPreviewTable } from '../shared/data-preview-table/data-preview-table';
+import { PageEmptyContainer } from '../shared/page/page-empty-container';
+import { PageHeader } from '../shared/page/page-header';
+import { PageScrollArea } from '../shared/page/page-scroll-area';
+import { ColumnsPagePreviewDataToolbar } from './columns-page-preview-data-tooblar';
 import { ColumnsTable } from './columns-page-table';
+import { ColumnsPageToolbar } from './columns-page-tooblar';
 
 export function ColumnsPage() {
   const [isLoadDataDialogOpened, setIsLoadDataDialogOpened] = useState(false);
@@ -37,12 +40,15 @@ export function ColumnsPage() {
         </ResizablePanel>
         <ResizableHandle withHandle />
         <ResizablePanel collapsible defaultSize={20} order={1}>
-          <DataPageHeader
+          <PageHeader
             title={tableName}
             Icon={Table}
-            secondaryText={`${columns?.length} columns found`}
             Action={
-              <Button onClick={() => setIsLoadDataDialogOpened(true)} disabled={isFetching}>
+              <Button
+                size="sm"
+                onClick={() => setIsLoadDataDialogOpened(true)}
+                disabled={isFetching}
+              >
                 Load Data
               </Button>
             }
@@ -53,26 +59,41 @@ export function ColumnsPage() {
               <TabsTrigger value="data-preview">Data Preview</TabsTrigger>
             </TabsList>
             <TabsContent value="columns" className="m-0">
-              <DataPageContent
-                hasTabs
-                isEmpty={!columns?.length}
-                Table={<ColumnsTable isLoading={isFetching} columns={columns ?? []} />}
-                emptyStateIcon={Columns}
-                emptyStateTitle="No Columns Found"
-                emptyStateDescription="No columns have been created yet. Create a column to get started."
-              />
+              {!columns?.length ? (
+                <PageEmptyContainer
+                  tabs
+                  Icon={Columns}
+                  title="No Columns Found"
+                  description="No columns have been found for this table."
+                />
+              ) : (
+                <>
+                  <ColumnsPageToolbar columns={columns} isFetchingColumns={isFetching} />
+                  <PageScrollArea tabs>
+                    <ColumnsTable isLoading={isFetching} columns={columns} />
+                  </PageScrollArea>
+                </>
+              )}
             </TabsContent>
             <TabsContent value="data-preview" className="m-0">
-              <DataPageContent
-                hasTabs
-                isEmpty={!previewData?.length}
-                Table={
-                  <DataPreviewTable isLoading={isPreviewDataFetching} columns={previewData ?? []} />
-                }
-                emptyStateIcon={Columns}
-                emptyStateTitle="No Data Found"
-                emptyStateDescription="No data has been loaded for this table yet."
-              />
+              {!previewData?.length ? (
+                <PageEmptyContainer
+                  tabs
+                  Icon={Columns}
+                  title="No Data Found"
+                  description="No data has been loaded for this table yet."
+                />
+              ) : (
+                <>
+                  <ColumnsPagePreviewDataToolbar
+                    previewData={previewData}
+                    isFetchingPreviewData={isPreviewDataFetching}
+                  />
+                  <PageScrollArea tabs>
+                    <DataPreviewTable columns={previewData} isLoading={isPreviewDataFetching} />
+                  </PageScrollArea>
+                </>
+              )}
             </TabsContent>
           </Tabs>
         </ResizablePanel>
