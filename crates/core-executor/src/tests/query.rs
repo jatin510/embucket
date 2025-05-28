@@ -75,22 +75,18 @@ static TABLE_SETUP: &str = include_str!(r"./table_setup.sql");
 pub async fn create_df_session() -> Arc<UserSession> {
     let metastore = SlateDBMetastore::new_in_memory().await;
     metastore
-        .create_volume(
-            MetastoreVolume::new(
-                "test_volume".to_string(),
-                core_metastore::VolumeType::Memory,
-            ),
-        )
+        .create_volume(MetastoreVolume::new(
+            "test_volume".to_string(),
+            core_metastore::VolumeType::Memory,
+        ))
         .await
         .expect("Failed to create volume");
     metastore
-        .create_database(
-            MetastoreDatabase {
-                ident: "embucket".to_string(),
-                properties: None,
-                volume: "test_volume".to_string(),
-            },
-        )
+        .create_database(MetastoreDatabase {
+            ident: "embucket".to_string(),
+            properties: None,
+            volume: "test_volume".to_string(),
+        })
         .await
         .expect("Failed to create database");
     let schema_ident = MetastoreSchemaIdent {
