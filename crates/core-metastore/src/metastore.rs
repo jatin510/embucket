@@ -1,8 +1,17 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::error::{self as metastore_error, MetastoreError, MetastoreResult};
 #[allow(clippy::wildcard_imports)]
 use crate::models::*;
+use crate::{
+    error::{self as metastore_error, MetastoreError, MetastoreResult},
+    models::{
+        RwObject,
+        database::{Database, DatabaseIdent},
+        schema::{Schema, SchemaIdent},
+        table::{Table, TableCreateRequest, TableIdent, TableRequirementExt, TableUpdate},
+        volumes::{Volume, VolumeIdent},
+    },
+};
 use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::Utc;
@@ -152,22 +161,26 @@ impl SlateDBMetastore {
     {
         if self
             .db
-            .get::<T>(key)
+            .get::<RwObject<T>>(key)
             .await
-            .context(metastore_error::UtilSlateDBSnafu)?
+            .context(metastore_error::UtilSlateDBSnafu)
+            .map_err(Box::new)?
             .is_none()
         {
             let rwobject = RwObject::new(object);
             self.db
                 .put(key, &rwobject)
                 .await
-                .context(metastore_error::UtilSlateDBSnafu)?;
+                .context(metastore_error::UtilSlateDBSnafu)
+                .map_err(Box::new)?;
             Ok(rwobject)
         } else {
-            Err(metastore_error::MetastoreError::ObjectAlreadyExists {
-                type_name: object_type.to_string(),
-                name: key.to_string(),
-            })
+            Err(Box::new(
+                metastore_error::MetastoreError::ObjectAlreadyExists {
+                    type_name: object_type.to_string(),
+                    name: key.to_string(),
+                },
+            ))
         }
     }
 
@@ -179,16 +192,18 @@ impl SlateDBMetastore {
             .db
             .get::<RwObject<T>>(key)
             .await
-            .context(metastore_error::UtilSlateDBSnafu)?
+            .context(metastore_error::UtilSlateDBSnafu)
+            .map_err(Box::new)?
         {
             rwo.update(object);
             self.db
                 .put(key, &rwo)
                 .await
-                .context(metastore_error::UtilSlateDBSnafu)?;
+                .context(metastore_error::UtilSlateDBSnafu)
+                .map_err(Box::new)?;
             Ok(rwo)
         } else {
-            Err(metastore_error::MetastoreError::ObjectNotFound)
+            Err(Box::new(metastore_error::MetastoreError::ObjectNotFound))
         }
     }
 
@@ -232,12 +247,12 @@ impl Metastore for SlateDBMetastore {
             .await
             .map_err(|e| {
                 if matches!(
-                    e,
+                    *e,
                     metastore_error::MetastoreError::ObjectAlreadyExists { .. }
                 ) {
-                    metastore_error::MetastoreError::VolumeAlreadyExists {
+                    Box::new(metastore_error::MetastoreError::VolumeAlreadyExists {
                         volume: name.clone(),
-                    }
+                    })
                 } else {
                     e
                 }
@@ -252,6 +267,7 @@ impl Metastore for SlateDBMetastore {
             .get(&key)
             .await
             .context(metastore_error::UtilSlateDBSnafu)
+            .map_err(Box::new)
     }
 
     async fn update_volume(&self, volume: Volume) -> MetastoreResult<RwObject<Volume>> {
@@ -287,9 +303,9 @@ impl Metastore for SlateDBMetastore {
             self.object_store_cache.remove(name);
             Ok(())
         } else {
-            Err(metastore_error::MetastoreError::VolumeInUse {
+            Err(Box::new(metastore_error::MetastoreError::VolumeInUse {
                 database: databases_using[..].join(", "),
-            })
+            }))
         }
     }
 
@@ -337,6 +353,7 @@ impl Metastore for SlateDBMetastore {
             .get(&key)
             .await
             .context(metastore_error::UtilSlateDBSnafu)
+            .map_err(Box::new)
     }
 
     async fn update_database(&self, database: Database) -> MetastoreResult<RwObject<Database>> {
@@ -382,9 +399,11 @@ impl Metastore for SlateDBMetastore {
             self.create_object(&key, MetastoreObjectType::Schema, schema)
                 .await
         } else {
-            Err(metastore_error::MetastoreError::DatabaseNotFound {
-                db: ident.database.clone(),
-            })
+            Err(Box::new(
+                metastore_error::MetastoreError::DatabaseNotFound {
+                    db: ident.database.clone(),
+                },
+            ))
         }
     }
 
@@ -394,6 +413,7 @@ impl Metastore for SlateDBMetastore {
             .get(&key)
             .await
             .context(metastore_error::UtilSlateDBSnafu)
+            .map_err(Box::new)
     }
 
     async fn update_schema(
@@ -553,10 +573,10 @@ impl Metastore for SlateDBMetastore {
                 .context(metastore_error::ObjectStoreSnafu)?;
             Ok(rwo_table)
         } else {
-            Err(metastore_error::MetastoreError::SchemaNotFound {
+            Err(Box::new(metastore_error::MetastoreError::SchemaNotFound {
                 schema: ident.schema.clone(),
                 db: ident.database.clone(),
-            })
+            }))
         }
     }
 
@@ -665,11 +685,11 @@ impl Metastore for SlateDBMetastore {
             );
             self.delete_object(&key).await
         } else {
-            Err(metastore_error::MetastoreError::TableNotFound {
+            Err(Box::new(metastore_error::MetastoreError::TableNotFound {
                 table: ident.table.clone(),
                 schema: ident.schema.clone(),
                 db: ident.database.clone(),
-            })
+            }))
         }
     }
 
@@ -682,6 +702,7 @@ impl Metastore for SlateDBMetastore {
             .get(&key)
             .await
             .context(metastore_error::UtilSlateDBSnafu)
+            .map_err(Box::new)
     }
 
     async fn table_object_store(
@@ -743,11 +764,13 @@ impl Metastore for SlateDBMetastore {
             ));
         }
 
-        return Err(metastore_error::MetastoreError::TableObjectStoreNotFound {
-            table: ident.table.clone(),
-            schema: ident.schema.clone(),
-            db: ident.database.clone(),
-        });
+        return Err(Box::new(
+            metastore_error::MetastoreError::TableObjectStoreNotFound {
+                table: ident.table.clone(),
+                schema: ident.schema.clone(),
+                db: ident.database.clone(),
+            },
+        ));
     }
 
     async fn volume_for_table(
