@@ -1,4 +1,6 @@
-use crate::catalogs::slatedb::metastore_config::MetastoreViewConfig;
+use crate::catalogs::slatedb::history_store_config::HistoryStoreViewConfig;
+use core_history::Worksheet;
+use datafusion::arrow::array::Int64Builder;
 use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::{
     array::StringBuilder,
@@ -14,16 +16,17 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 #[derive(Debug)]
-pub struct SchemasView {
+pub struct WorksheetsView {
     schema: SchemaRef,
-    config: MetastoreViewConfig,
+    config: HistoryStoreViewConfig,
 }
 
-impl SchemasView {
-    pub(crate) fn new(config: MetastoreViewConfig) -> Self {
+impl WorksheetsView {
+    pub(crate) fn new(config: HistoryStoreViewConfig) -> Self {
         let schema = Arc::new(Schema::new(vec![
-            Field::new("schema_name", DataType::Utf8, false),
-            Field::new("database_name", DataType::Utf8, false),
+            Field::new("id", DataType::Int64, false),
+            Field::new("name", DataType::Utf8, true),
+            Field::new("content", DataType::Utf8, true),
             Field::new("created_at", DataType::Utf8, false),
             Field::new("updated_at", DataType::Utf8, false),
         ]));
@@ -31,10 +34,11 @@ impl SchemasView {
         Self { schema, config }
     }
 
-    fn builder(&self) -> SchemasViewBuilder {
-        SchemasViewBuilder {
-            schema_names: StringBuilder::new(),
-            database_names: StringBuilder::new(),
+    fn builder(&self) -> WorksheetsViewBuilder {
+        WorksheetsViewBuilder {
+            worksheet_ids: Int64Builder::new(),
+            worksheet_names: StringBuilder::new(),
+            content_values: StringBuilder::new(),
             created_at_timestamps: StringBuilder::new(),
             updated_at_timestamps: StringBuilder::new(),
             schema: Arc::clone(&self.schema),
@@ -42,7 +46,7 @@ impl SchemasView {
     }
 }
 
-impl PartitionStream for SchemasView {
+impl PartitionStream for WorksheetsView {
     fn schema(&self) -> &SchemaRef {
         &self.schema
     }
@@ -53,7 +57,7 @@ impl PartitionStream for SchemasView {
         Box::pin(RecordBatchStreamAdapter::new(
             Arc::clone(&self.schema),
             futures::stream::once(async move {
-                config.make_schemas(&mut builder).await?;
+                config.make_worksheets(&mut builder).await?;
                 builder
                     .finish()
                     .map_err(|e| DataFusionError::ArrowError(e, None))
@@ -62,35 +66,44 @@ impl PartitionStream for SchemasView {
     }
 }
 
-pub struct SchemasViewBuilder {
+pub struct WorksheetsViewBuilder {
     schema: SchemaRef,
-    schema_names: StringBuilder,
-    database_names: StringBuilder,
+    worksheet_ids: Int64Builder,
+    worksheet_names: StringBuilder,
+    content_values: StringBuilder,
     created_at_timestamps: StringBuilder,
     updated_at_timestamps: StringBuilder,
 }
 
-impl SchemasViewBuilder {
-    pub fn add_schema(
-        &mut self,
-        schema_name: impl AsRef<str>,
-        database_name: impl AsRef<str>,
-        created_at: impl AsRef<str>,
-        updated_at: impl AsRef<str>,
-    ) {
+impl WorksheetsViewBuilder {
+    pub fn add_worksheet(&mut self, worksheet: Worksheet) {
         // Note: append_value is actually infallible.
-        self.schema_names.append_value(schema_name.as_ref());
-        self.database_names.append_value(database_name.as_ref());
-        self.created_at_timestamps.append_value(created_at.as_ref());
-        self.updated_at_timestamps.append_value(updated_at.as_ref());
+        self.worksheet_ids.append_value(worksheet.id);
+        self.worksheet_names
+            .append_option(if worksheet.name.is_empty() {
+                None
+            } else {
+                Some(worksheet.name)
+            });
+        self.content_values
+            .append_option(if worksheet.content.is_empty() {
+                None
+            } else {
+                Some(worksheet.content)
+            });
+        self.created_at_timestamps
+            .append_value(worksheet.created_at.to_string());
+        self.updated_at_timestamps
+            .append_value(worksheet.updated_at.to_string());
     }
 
     fn finish(&mut self) -> Result<RecordBatch, ArrowError> {
         RecordBatch::try_new(
             Arc::clone(&self.schema),
             vec![
-                Arc::new(self.schema_names.finish()),
-                Arc::new(self.database_names.finish()),
+                Arc::new(self.worksheet_ids.finish()),
+                Arc::new(self.worksheet_names.finish()),
+                Arc::new(self.content_values.finish()),
                 Arc::new(self.created_at_timestamps.finish()),
                 Arc::new(self.updated_at_timestamps.finish()),
             ],
