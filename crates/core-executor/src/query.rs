@@ -1568,7 +1568,8 @@ impl UserQuery {
                     self.update_tables_in_table_with_joins(&mut table)?;
                     if let Some(from) = from.as_mut() {
                         match from {
-                            UpdateTableFromKind::BeforeSet(tables) | UpdateTableFromKind::AfterSet(tables) => {
+                            UpdateTableFromKind::BeforeSet(tables)
+                            | UpdateTableFromKind::AfterSet(tables) => {
                                 for table_with_joins in tables {
                                     self.update_tables_in_table_with_joins(table_with_joins)?;
                                 }
