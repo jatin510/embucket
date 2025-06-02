@@ -23,7 +23,7 @@ use datafusion::catalog::{CatalogProvider, SchemaProvider};
 use datafusion::datasource::default_table_source::provider_as_source;
 use datafusion::execution::session_state::SessionContextProvider;
 use datafusion::execution::session_state::SessionState;
-use datafusion::logical_expr::{LogicalPlan, TableSource};
+use datafusion::logical_expr::{LogicalPlan, TableSource, sqlparser::ast::Insert};
 use datafusion::prelude::CsvReadOptions;
 use datafusion::scalar::ScalarValue;
 use datafusion::sql::parser::{CreateExternalTable, DFParser, Statement as DFStatement};
@@ -53,8 +53,8 @@ use snafu::ResultExt;
 use sqlparser::ast::helpers::attached_token::AttachedToken;
 use sqlparser::ast::{
     BinaryOperator, GroupByExpr, MergeAction, MergeClauseKind, MergeInsertKind, ObjectNamePart,
-    ObjectType, PivotValueSource, Select, SelectItem, ShowObjects, ShowStatementFilter,
-    ShowStatementIn, TruncateTableTarget, Use, Value,
+    ObjectType, PivotValueSource, Query as AstQuery, Select, SelectItem, ShowObjects,
+    ShowStatementFilter, ShowStatementIn, TruncateTableTarget, Use, Value,
 };
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -1228,9 +1228,11 @@ impl UserQuery {
 
         // We turn a query to SQL only to turn it back into a statement
         // TODO: revisit this pattern
-        let statement = state
+        let mut statement = state
             .sql_to_statement(query, dialect)
             .context(super::error::DataFusionSnafu)?;
+
+        statement = self.update_statement_references(statement)?;
 
         if let DFStatement::Statement(s) = statement.clone() {
             self.sql_statement_to_plan(*s).await
@@ -1399,6 +1401,176 @@ impl UserQuery {
             }
             _ => {}
         }
+    }
+
+    // TODO: Modify this function to modify the statement in-place to
+    // avoid extra allocations
+    #[allow(clippy::too_many_lines)]
+    pub fn update_statement_references(
+        &self,
+        statement: DFStatement,
+    ) -> ExecutionResult<DFStatement> {
+        match statement.clone() {
+            DFStatement::CreateExternalTable(create_external) => {
+                let table_name = self.resolve_table_object_name(create_external.name.0)?;
+                let modified_statement = CreateExternalTable {
+                    name: ObjectName(table_name.0),
+                    ..create_external
+                };
+                Ok(DFStatement::CreateExternalTable(modified_statement))
+            }
+            DFStatement::Statement(s) => match *s {
+                Statement::AlterTable {
+                    name,
+                    if_exists,
+                    only,
+                    operations,
+                    location,
+                    on_cluster,
+                } => {
+                    let name = self.resolve_table_object_name(name.0)?;
+                    let modified_statement = Statement::AlterTable {
+                        name: ObjectName(name.0),
+                        if_exists,
+                        only,
+                        operations,
+                        location,
+                        on_cluster,
+                    };
+                    Ok(DFStatement::Statement(Box::new(modified_statement)))
+                }
+                Statement::Insert(insert_statement) => {
+                    let table_name =
+                        self.resolve_table_object_name(insert_statement.table_name.0)?;
+
+                    let source = insert_statement.source.map(|mut query| {
+                        self.update_tables_in_query(query.as_mut())
+                            .map(|()| Some(Box::new(AstQuery { ..*query })))
+                    });
+
+                    let source = if let Some(source) = source {
+                        source?
+                    } else {
+                        None
+                    };
+
+                    let modified_statement = Insert {
+                        table_name: ObjectName(table_name.0),
+                        source,
+                        ..insert_statement
+                    };
+                    Ok(DFStatement::Statement(Box::new(Statement::Insert(
+                        modified_statement,
+                    ))))
+                }
+                Statement::Drop {
+                    object_type,
+                    if_exists,
+                    mut names,
+                    cascade,
+                    restrict,
+                    purge,
+                    temporary,
+                } => {
+                    for name in &mut names {
+                        match object_type {
+                            ObjectType::Schema => {
+                                *name =
+                                    ObjectName(self.resolve_table_object_name(name.0.clone())?.0);
+                            }
+                            ObjectType::Table => {
+                                *name =
+                                    ObjectName(self.resolve_table_object_name(name.0.clone())?.0);
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    let modified_statement = Statement::Drop {
+                        object_type,
+                        if_exists,
+                        names,
+                        cascade,
+                        restrict,
+                        purge,
+                        temporary,
+                    };
+                    Ok(DFStatement::Statement(Box::new(modified_statement)))
+                }
+                Statement::Query(mut query) => {
+                    self.update_tables_in_query(query.as_mut())?;
+                    Ok(DFStatement::Statement(Box::new(Statement::Query(query))))
+                }
+                Statement::CreateTable(mut create_table_statement) => {
+                    // Remove all unsupported iceberg params (we already take them into account)
+                    create_table_statement.iceberg = false;
+                    create_table_statement.base_location = None;
+                    create_table_statement.external_volume = None;
+                    create_table_statement.catalog = None;
+                    create_table_statement.catalog_sync = None;
+                    create_table_statement.storage_serialization_policy = None;
+                    if let Some(ref mut query) = create_table_statement.query {
+                        self.update_tables_in_query(query)?;
+                    }
+                    Ok(DFStatement::Statement(Box::new(Statement::CreateTable(
+                        create_table_statement,
+                    ))))
+                }
+                Statement::Update {
+                    mut table,
+                    assignments,
+                    mut from,
+                    selection,
+                    returning,
+                    or,
+                } => {
+                    self.update_tables_in_table_with_joins(&mut table)?;
+                    if let Some(from) = from.as_mut() {
+                        self.update_tables_in_table_with_joins(from)?;
+                    }
+                    let modified_statement = Statement::Update {
+                        table,
+                        assignments,
+                        from,
+                        selection,
+                        returning,
+                        or,
+                    };
+                    Ok(DFStatement::Statement(Box::new(modified_statement)))
+                }
+                _ => Ok(statement),
+            },
+            _ => Ok(statement),
+        }
+    }
+
+    // Fill in the database and schema if they are missing
+    // and normalize the identifiers
+    pub fn resolve_table_ident(
+        &self,
+        mut table_ident: Vec<Ident>,
+    ) -> ExecutionResult<NormalizedIdent> {
+        match table_ident.len() {
+            1 => {
+                table_ident.insert(0, Ident::new(self.current_database()));
+                table_ident.insert(1, Ident::new(self.current_schema()));
+            }
+            2 => {
+                table_ident.insert(0, Ident::new(self.current_database()));
+            }
+            3 => {}
+            _ => {
+                return Err(ExecutionError::InvalidTableIdentifier {
+                    ident: NormalizedIdent(table_ident).to_string(),
+                });
+            }
+        }
+        Ok(NormalizedIdent(
+            table_ident
+                .iter()
+                .map(|ident| Ident::new(self.session.ident_normalizer.normalize(ident.clone())))
+                .collect(),
+        ))
     }
 
     #[allow(clippy::unwrap_used)]
