@@ -1419,7 +1419,7 @@ impl UserQuery {
                         table_name
                             .0
                             .into_iter()
-                            .map(|ident| ObjectNamePart::Identifier(ident))
+                            .map(ObjectNamePart::Identifier)
                             .collect(),
                     ),
                     ..create_external
@@ -1438,10 +1438,7 @@ impl UserQuery {
                     let name = self.resolve_table_object_name(name.0)?;
                     let modified_statement = Statement::AlterTable {
                         name: ObjectName(
-                            name.0
-                                .into_iter()
-                                .map(|ident| ObjectNamePart::Identifier(ident))
-                                .collect(),
+                            name.0.into_iter().map(ObjectNamePart::Identifier).collect(),
                         ),
                         if_exists,
                         only,
@@ -1480,7 +1477,7 @@ impl UserQuery {
                         table_name
                             .0
                             .into_iter()
-                            .map(|ident| ObjectNamePart::Identifier(ident))
+                            .map(ObjectNamePart::Identifier)
                             .collect(),
                     );
                     let modified_statement = Insert {
@@ -1509,7 +1506,7 @@ impl UserQuery {
                                     resolved
                                         .0
                                         .into_iter()
-                                        .map(|ident| ObjectNamePart::Identifier(ident))
+                                        .map(ObjectNamePart::Identifier)
                                         .collect(),
                                 );
                             }
@@ -1519,7 +1516,7 @@ impl UserQuery {
                                     resolved
                                         .0
                                         .into_iter()
-                                        .map(|ident| ObjectNamePart::Identifier(ident))
+                                        .map(ObjectNamePart::Identifier)
                                         .collect(),
                                 );
                             }
@@ -1693,7 +1690,7 @@ impl UserQuery {
                     compressed_name
                         .0
                         .into_iter()
-                        .map(|ident| ObjectNamePart::Identifier(ident))
+                        .map(ObjectNamePart::Identifier)
                         .collect(),
                 );
             }
