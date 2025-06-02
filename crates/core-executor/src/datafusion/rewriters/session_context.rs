@@ -10,6 +10,7 @@ pub struct SessionContextExprRewriter {
     pub schemas: Vec<String>,
     pub warehouse: String,
     pub session_id: String,
+    pub version: String,
 }
 
 impl SessionContextExprRewriter {
@@ -45,17 +46,14 @@ impl TreeNodeRewriter for ExprRewriter<'_> {
     fn f_up(&mut self, expr: Expr) -> Result<Transformed<Expr>> {
         if let Expr::ScalarFunction(fun) = &expr {
             let name = fun.name().to_lowercase();
-
             let scalar_value = match name.as_str() {
                 "current_database" => Some(utf8_val(&self.rewriter.database)),
                 "current_schema" => Some(utf8_val(&self.rewriter.schema)),
                 "current_warehouse" => Some(utf8_val(&self.rewriter.warehouse)),
                 "current_role_type" => Some(utf8_val("ROLE")),
                 "current_role" => Some(utf8_val("default")),
-                "current_version" => Some(utf8_val(env!("CARGO_PKG_VERSION"))),
-                "current_client" => {
-                    Some(utf8_val(format!("Embucket {}", env!("CARGO_PKG_VERSION"))))
-                }
+                "current_version" => Some(utf8_val(&self.rewriter.version)),
+                "current_client" => Some(utf8_val(format!("Embucket {}", &self.rewriter.version))),
                 "current_session" => Some(utf8_val(&self.rewriter.session_id)),
                 "current_schemas" => Some(list_val(&self.rewriter.schemas)),
                 _ => None,
