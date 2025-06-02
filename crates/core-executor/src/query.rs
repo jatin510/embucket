@@ -54,7 +54,8 @@ use sqlparser::ast::helpers::attached_token::AttachedToken;
 use sqlparser::ast::{
     BinaryOperator, GroupByExpr, MergeAction, MergeClauseKind, MergeInsertKind, ObjectNamePart,
     ObjectType, PivotValueSource, Query as AstQuery, Select, SelectItem, ShowObjects,
-    ShowStatementFilter, ShowStatementIn, TruncateTableTarget, Use, Value,
+    ShowStatementFilter, ShowStatementIn, TableObject, TruncateTableTarget, UpdateTableFromKind,
+    Use, Value,
 };
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -1414,7 +1415,13 @@ impl UserQuery {
             DFStatement::CreateExternalTable(create_external) => {
                 let table_name = self.resolve_table_object_name(create_external.name.0)?;
                 let modified_statement = CreateExternalTable {
-                    name: ObjectName(table_name.0),
+                    name: ObjectName(
+                        table_name
+                            .0
+                            .into_iter()
+                            .map(|ident| ObjectNamePart::Identifier(ident))
+                            .collect(),
+                    ),
                     ..create_external
                 };
                 Ok(DFStatement::CreateExternalTable(modified_statement))
@@ -1430,7 +1437,12 @@ impl UserQuery {
                 } => {
                     let name = self.resolve_table_object_name(name.0)?;
                     let modified_statement = Statement::AlterTable {
-                        name: ObjectName(name.0),
+                        name: ObjectName(
+                            name.0
+                                .into_iter()
+                                .map(|ident| ObjectNamePart::Identifier(ident))
+                                .collect(),
+                        ),
                         if_exists,
                         only,
                         operations,
@@ -1441,7 +1453,17 @@ impl UserQuery {
                 }
                 Statement::Insert(insert_statement) => {
                     let table_name =
-                        self.resolve_table_object_name(insert_statement.table_name.0)?;
+                        match &insert_statement.table {
+                            TableObject::TableName(name) => {
+                                self.resolve_table_object_name(name.0.clone())?
+                            }
+                            _ => return Err(ExecutionError::DataFusion {
+                                source: DataFusionError::NotImplemented(
+                                    "Only simple table names are supported in INSERT statements"
+                                        .to_string(),
+                                ),
+                            }),
+                        };
 
                     let source = insert_statement.source.map(|mut query| {
                         self.update_tables_in_query(query.as_mut())
@@ -1454,8 +1476,15 @@ impl UserQuery {
                         None
                     };
 
+                    let object_name = ObjectName(
+                        table_name
+                            .0
+                            .into_iter()
+                            .map(|ident| ObjectNamePart::Identifier(ident))
+                            .collect(),
+                    );
                     let modified_statement = Insert {
-                        table_name: ObjectName(table_name.0),
+                        table: TableObject::TableName(object_name),
                         source,
                         ..insert_statement
                     };
@@ -1475,12 +1504,24 @@ impl UserQuery {
                     for name in &mut names {
                         match object_type {
                             ObjectType::Schema => {
-                                *name =
-                                    ObjectName(self.resolve_table_object_name(name.0.clone())?.0);
+                                let resolved = self.resolve_table_object_name(name.0.clone())?;
+                                *name = ObjectName(
+                                    resolved
+                                        .0
+                                        .into_iter()
+                                        .map(|ident| ObjectNamePart::Identifier(ident))
+                                        .collect(),
+                                );
                             }
                             ObjectType::Table => {
-                                *name =
-                                    ObjectName(self.resolve_table_object_name(name.0.clone())?.0);
+                                let resolved = self.resolve_table_object_name(name.0.clone())?;
+                                *name = ObjectName(
+                                    resolved
+                                        .0
+                                        .into_iter()
+                                        .map(|ident| ObjectNamePart::Identifier(ident))
+                                        .collect(),
+                                );
                             }
                             _ => {}
                         }
@@ -1526,7 +1567,13 @@ impl UserQuery {
                 } => {
                     self.update_tables_in_table_with_joins(&mut table)?;
                     if let Some(from) = from.as_mut() {
-                        self.update_tables_in_table_with_joins(from)?;
+                        match from {
+                            UpdateTableFromKind::BeforeSet(tables) | UpdateTableFromKind::AfterSet(tables) => {
+                                for table_with_joins in tables {
+                                    self.update_tables_in_table_with_joins(table_with_joins)?;
+                                }
+                            }
+                        }
                     }
                     let modified_statement = Statement::Update {
                         table,
@@ -1632,8 +1679,22 @@ impl UserQuery {
     fn update_tables_in_table_factor(&self, table_factor: &mut TableFactor) -> ExecutionResult<()> {
         match table_factor {
             TableFactor::Table { name, .. } => {
-                let compressed_name = self.resolve_table_ident(name.clone().0)?;
-                *name = ObjectName(compressed_name.0);
+                let name_idents: Vec<Ident> = name
+                    .0
+                    .iter()
+                    .map(|part| match part {
+                        ObjectNamePart::Identifier(ident) => ident.clone(),
+                    })
+                    .collect();
+
+                let compressed_name = self.resolve_table_ident(name_idents)?;
+                *name = ObjectName(
+                    compressed_name
+                        .0
+                        .into_iter()
+                        .map(|ident| ObjectNamePart::Identifier(ident))
+                        .collect(),
+                );
             }
             TableFactor::Derived { subquery, .. } => {
                 self.update_tables_in_query(subquery)?;
