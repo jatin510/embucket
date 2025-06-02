@@ -29,6 +29,7 @@ use datafusion::sql::planner::IdentNormalizer;
 use datafusion_functions_json::register_all as register_json_udfs;
 use datafusion_iceberg::catalog::catalog::IcebergCatalog as DataFusionIcebergCatalog;
 use df_builtins::register_udafs;
+use df_builtins::table::register_udtfs;
 use df_catalog::catalog_list::{DEFAULT_CATALOG, EmbucketCatalogList};
 use df_catalog::information_schema::session_params::{SessionParams, SessionProperty};
 use iceberg_rust::object_store::ObjectStoreBuilder;
@@ -91,6 +92,7 @@ impl UserSession {
         let mut ctx = SessionContext::new_with_state(state);
         register_udfs(&mut ctx).context(ex_error::RegisterUDFSnafu)?;
         register_udafs(&mut ctx).context(ex_error::RegisterUDAFSnafu)?;
+        register_udtfs(&ctx);
         register_json_udfs(&mut ctx).context(ex_error::RegisterUDFSnafu)?;
         //register_geo_native(&ctx);
         //register_geo_udfs(&ctx);
