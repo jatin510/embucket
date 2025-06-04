@@ -1,5 +1,6 @@
 pub use crate::aggregate::register_udafs;
 use crate::get::GetFunc;
+use crate::is_typeof::IsTypeofFunc;
 use crate::to_boolean::ToBooleanFunc;
 use crate::to_time::ToTimeFunc;
 use datafusion::arrow::array::{
@@ -30,6 +31,7 @@ mod iff;
 mod insert;
 mod is_array;
 mod is_object;
+mod is_typeof;
 mod json;
 mod nullifzero;
 mod object_keys;
@@ -47,6 +49,7 @@ mod to_time;
 mod try_parse_json;
 pub mod variant;
 pub mod visitors;
+
 pub fn register_udfs(registry: &mut dyn FunctionRegistry) -> Result<()> {
     let functions: Vec<Arc<ScalarUDF>> = vec![
         convert_timezone::get_udf(),
@@ -74,6 +77,14 @@ pub fn register_udfs(registry: &mut dyn FunctionRegistry) -> Result<()> {
         Arc::new(ScalarUDF::from(ToBooleanFunc::new(true))),
         Arc::new(ScalarUDF::from(ToTimeFunc::new(false))),
         Arc::new(ScalarUDF::from(ToTimeFunc::new(true))),
+        Arc::new(ScalarUDF::from(IsTypeofFunc::new(is_typeof::Kind::Null))),
+        Arc::new(ScalarUDF::from(IsTypeofFunc::new(is_typeof::Kind::Boolean))),
+        Arc::new(ScalarUDF::from(IsTypeofFunc::new(is_typeof::Kind::Double))),
+        Arc::new(ScalarUDF::from(IsTypeofFunc::new(is_typeof::Kind::Real))),
+        Arc::new(ScalarUDF::from(IsTypeofFunc::new(is_typeof::Kind::Integer))),
+        Arc::new(ScalarUDF::from(IsTypeofFunc::new(is_typeof::Kind::String))),
+        Arc::new(ScalarUDF::from(IsTypeofFunc::new(is_typeof::Kind::Array))),
+        Arc::new(ScalarUDF::from(IsTypeofFunc::new(is_typeof::Kind::Object))),
         Arc::new(ScalarUDF::from(GetFunc::new(true))),
         Arc::new(ScalarUDF::from(GetFunc::new(false))),
     ];
