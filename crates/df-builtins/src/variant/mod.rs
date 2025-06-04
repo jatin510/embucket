@@ -27,6 +27,7 @@ pub mod object_construct;
 pub mod object_delete;
 pub mod object_insert;
 pub mod object_pick;
+pub mod to_array;
 pub mod variant_element;
 pub mod visitors;
 
@@ -67,6 +68,7 @@ pub fn register_udfs(registry: &mut dyn FunctionRegistry) -> Result<()> {
         object_construct::get_udf(),
         array_flatten::get_udf(),
         array_to_string::get_udf(),
+        to_array::get_udf(),
     ];
 
     for func in functions {
