@@ -1,5 +1,7 @@
+use crate::queries::error::{GetQueryRecordSnafu, StoreSnafu};
 use crate::queries::models::{
-    GetQueriesParams, QueriesResponse, QueryCreatePayload, QueryCreateResponse, QueryRecord,
+    GetQueriesParams, QueriesResponse, QueryCreatePayload, QueryCreateResponse, QueryGetResponse,
+    QueryRecord,
 };
 use crate::state::AppState;
 use crate::{
@@ -8,6 +10,7 @@ use crate::{
 };
 use api_sessions::DFSessionId;
 use axum::extract::ConnectInfo;
+use axum::extract::Path;
 use axum::{
     Json,
     extract::{Query, State},
@@ -22,8 +25,8 @@ use utoipa::OpenApi;
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(query, queries),
-    components(schemas(QueriesResponse, QueryCreateResponse, QueryCreatePayload,)),
+    paths(query, queries, get_query),
+    components(schemas(QueriesResponse, QueryCreateResponse, QueryCreatePayload, QueryGetResponse, QueryRecord, QueryRecordId, ErrorResponse)),
     tags(
       (name = "queries", description = "Queries endpoints"),
     )
@@ -116,6 +119,44 @@ pub async fn query(
             source: QueryError::Execution { source: err },
         }),
     }
+}
+
+#[utoipa::path(
+    get,
+    path = "/ui/queries/{queryRecordId}",
+    operation_id = "getQuery",
+    tags = ["queries"],
+    params(
+        ("queryRecordId" = QueryRecordId, Path, description = "Query Record Id")
+    ),
+    responses(
+        (status = 200, description = "Returns result of the query", body = QueryGetResponse),
+        (status = 401,
+         description = "Unauthorized",
+         headers(
+            ("WWW-Authenticate" = String, description = "Bearer authentication scheme with error details")
+         ),
+         body = ErrorResponse),
+        (status = 400, description = "Bad query record id", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    )
+)]
+#[tracing::instrument(level = "debug", skip(state), err, ret(level = tracing::Level::TRACE))]
+pub async fn get_query(
+    State(state): State<AppState>,
+    Path(query_record_id): Path<QueryRecordId>,
+) -> QueriesResult<Json<QueryGetResponse>> {
+    state
+        .history_store
+        .get_query(query_record_id)
+        .await
+        .map(|query_record| {
+            Ok(Json(QueryGetResponse(
+                query_record.try_into().context(GetQueryRecordSnafu)?,
+            )))
+        })
+        .context(StoreSnafu)
+        .context(GetQueryRecordSnafu)?
 }
 
 #[utoipa::path(
