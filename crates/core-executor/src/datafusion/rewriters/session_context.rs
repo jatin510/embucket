@@ -91,6 +91,13 @@ impl TreeNodeRewriter for ExprRewriter<'_> {
                     };
                     Some(self.rewriter.last_query_id(index)?)
                 }
+                "current_ip_address" => Some(utf8_val(
+                    self.rewriter
+                        .query_context
+                        .ip_address
+                        .clone()
+                        .unwrap_or_default(),
+                )),
                 "current_schemas" => Some(list_val(&self.rewriter.schemas)),
                 _ => None,
             };
