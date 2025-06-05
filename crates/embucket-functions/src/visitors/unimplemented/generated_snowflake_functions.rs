@@ -841,12 +841,6 @@ pub const DATA_QUALITY_FUNCTIONS: &[(&str, FunctionInfo)] = &[
 ];
 
 pub const DATETIME_FUNCTIONS: &[(&str, FunctionInfo)] = &[
-    ("ADD_MONTHS", FunctionInfo::new(
-        "ADD_MONTHS",
-        "Adds or subtracts a specified number of months to a date or timestamp, preserving the end-of-month information."
-    )
-    .with_docs("https://docs.snowflake.com/en/sql-reference/functions/add_months")
-    ),
     ("DAY", FunctionInfo::new(
         "DAY",
         "Extracts the corresponding date part from a date or timestamp."
