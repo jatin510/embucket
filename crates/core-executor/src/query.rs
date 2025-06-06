@@ -43,7 +43,7 @@ use df_catalog::catalog::CachingCatalog;
 use df_catalog::information_schema::session_params::SessionProperty;
 use embucket_functions::semi_structured::variant::visitors::visit_all;
 use embucket_functions::visitors::{
-    copy_into_identifiers, functions_rewriter, json_element,
+    copy_into_identifiers, functions_rewriter, json_element, select_expr_aliases,
     unimplemented::functions_checker::visit as unimplemented_functions_checker,
 };
 use iceberg_rust::catalog::Catalog;
@@ -182,6 +182,7 @@ impl UserQuery {
                 source: DataFusionError::NotImplemented(e.to_string()),
             })?;
             copy_into_identifiers::visit(value);
+            select_expr_aliases::visit(value);
             visit_all(value);
         }
         Ok(())
