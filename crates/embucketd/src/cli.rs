@@ -6,6 +6,7 @@ use object_store::{
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tracing_subscriber::filter::LevelFilter;
 
 #[derive(Parser)]
 #[command(version, about, long_about=None)]
@@ -163,6 +164,15 @@ pub struct CliOpts {
         help = "Password for auth demo"
     )]
     pub auth_demo_password: Option<String>,
+
+    #[arg(
+        long,
+        value_enum,
+        env = "TRACING_LEVEL",
+        default_value = "info",
+        help = "Tracing level, it can be overrided by *RUST_LOG* env var"
+    )]
+    pub tracing_level: TracingLevel,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -217,5 +227,36 @@ impl CliOpts {
             std::env::remove_var("JWT_SECRET");
         }
         self.jwt_secret.clone().unwrap_or_default()
+    }
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+pub enum TracingLevel {
+    Off,
+    Info,
+    Debug,
+    Trace,
+}
+
+#[allow(clippy::from_over_into)]
+impl Into<LevelFilter> for TracingLevel {
+    fn into(self) -> LevelFilter {
+        match self {
+            Self::Off => LevelFilter::OFF,
+            Self::Info => LevelFilter::INFO,
+            Self::Debug => LevelFilter::DEBUG,
+            Self::Trace => LevelFilter::TRACE,
+        }
+    }
+}
+
+impl std::fmt::Display for TracingLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Off => write!(f, "off"),
+            Self::Info => write!(f, "info"),
+            Self::Debug => write!(f, "debug"),
+            Self::Trace => write!(f, "trace"),
+        }
     }
 }

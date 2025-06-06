@@ -172,7 +172,7 @@ impl UserQuery {
         }
     }
 
-    #[instrument(level = "trace")]
+    #[instrument(name = "UserQuery::postprocess_query_statement", level = "trace", err)]
     pub fn postprocess_query_statement_with_validation(
         statement: &mut DFStatement,
     ) -> ExecutionResult<()> {
@@ -190,7 +190,7 @@ impl UserQuery {
         Ok(())
     }
 
-    #[instrument(level = "debug", skip(self), err, ret(level = tracing::Level::TRACE))]
+    #[instrument(name = "UserQuery::execute", level = "debug", skip(self), err)]
     pub async fn execute(&mut self) -> ExecutionResult<QueryResult> {
         let statement = self.parse_query().context(super::error::DataFusionSnafu)?;
         self.query = statement.to_string();
@@ -345,6 +345,7 @@ impl UserQuery {
         self.execute_sql(&self.query).await
     }
 
+    #[instrument(name = "UserQuery::get_catalog", level = "trace", skip(self), err)]
     pub fn get_catalog(&self, name: &str) -> ExecutionResult<Arc<dyn CatalogProvider>> {
         self.session.ctx.state().catalog_list().catalog(name).ok_or(
             ExecutionError::CatalogNotFound {
@@ -359,6 +360,11 @@ impl UserQuery {
     /// to actually execute logical plan.
     /// Otherwise, code tries to downcast catalog to [`Catalog`] and if successful,
     /// return the catalog
+    #[instrument(
+        name = "UserQuery::resolve_iceberg_catalog_or_execute",
+        level = "trace",
+        skip(self, catalog)
+    )]
     pub async fn resolve_iceberg_catalog_or_execute(
         &self,
         catalog: Arc<dyn CatalogProvider>,
@@ -394,7 +400,7 @@ impl UserQuery {
         }
     }
 
-    #[instrument(level = "trace", skip(self), err, ret)]
+    #[instrument(name = "UserQuery::drop_query", level = "trace", skip(self), err)]
     pub async fn drop_query(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let Statement::Drop {
             names, object_type, ..
@@ -454,7 +460,12 @@ impl UserQuery {
     }
 
     #[allow(clippy::redundant_else, clippy::too_many_lines)]
-    #[instrument(level = "trace", skip(self), err, ret)]
+    #[instrument(
+        name = "UserQuery::create_table_query",
+        level = "trace",
+        skip(self),
+        err
+    )]
     pub async fn create_table_query(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let Statement::CreateTable(mut create_table_statement) = statement.clone() else {
             return Err(ExecutionError::DataFusion {
@@ -546,6 +557,12 @@ impl UserQuery {
     }
 
     #[allow(unused_variables)]
+    #[instrument(
+        name = "UserQuery::create_iceberg_table",
+        level = "trace",
+        skip(self),
+        err
+    )]
     pub async fn create_iceberg_table(
         &self,
         catalog: Arc<dyn CatalogProvider>,
@@ -628,6 +645,12 @@ impl UserQuery {
         self.created_entity_response()
     }
 
+    #[instrument(
+        name = "UserQuery::create_external_table_query",
+        level = "trace",
+        skip(self),
+        err
+    )]
     pub async fn create_external_table_query(
         &self,
         statement: CreateExternalTable,
@@ -700,6 +723,12 @@ impl UserQuery {
     /// - We don't need to create table in case we have common shared session context.
     ///   CSV is registered as a table which can referenced from SQL statements executed against this context
     /// - Revisit this with the new metastore approach
+    #[instrument(
+        name = "UserQuery::create_stage_query",
+        level = "trace",
+        skip(self),
+        err
+    )]
     pub async fn create_stage_query(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let Statement::CreateStage {
             name,
@@ -803,6 +832,12 @@ impl UserQuery {
         self.status_response()
     }
 
+    #[instrument(
+        name = "UserQuery::copy_into_snowflake_query",
+        level = "trace",
+        skip(self),
+        err
+    )]
     pub async fn copy_into_snowflake_query(
         &self,
         statement: Statement,
@@ -834,7 +869,7 @@ impl UserQuery {
         }
     }
 
-    #[instrument(level = "trace", skip(self), err, ret)]
+    #[instrument(name = "UserQuery::merge_query", level = "trace", skip(self), err)]
     pub async fn merge_query(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let Statement::Merge {
             table,
@@ -920,7 +955,7 @@ impl UserQuery {
         self.execute_with_custom_plan(&insert_query).await
     }
 
-    #[instrument(level = "trace", skip(self), err, ret)]
+    #[instrument(name = "UserQuery::create_schema", level = "trace", skip(self), err)]
     pub async fn create_schema(&self, statement: Statement) -> ExecutionResult<QueryResult> {
         let Statement::CreateSchema {
             schema_name,
@@ -1222,7 +1257,13 @@ impl UserQuery {
         TableReference::full(catalog, schema, table_name)
     }
 
-    #[instrument(level = "trace", skip(self), err, ret)]
+    #[instrument(
+        name = "UserQuery::get_custom_logical_plan",
+        level = "trace",
+        skip(self),
+        err,
+        ret
+    )]
     pub async fn get_custom_logical_plan(&self, query: &str) -> ExecutionResult<LogicalPlan> {
         let state = self.session.ctx.state();
         let dialect = state.config().options().sql_parser.dialect.as_str();
@@ -1348,7 +1389,12 @@ impl UserQuery {
         Ok(stream)
     }
 
-    #[instrument(level = "trace", skip(self), err, ret)]
+    #[instrument(
+        name = "UserQuery::execute_with_custom_plan",
+        level = "trace",
+        skip(self),
+        err
+    )]
     pub async fn execute_with_custom_plan(&self, query: &str) -> ExecutionResult<QueryResult> {
         let mut plan = self.get_custom_logical_plan(query).await?;
         plan = self
@@ -1782,6 +1828,12 @@ impl UserQuery {
 
     // Fill in the database and schema if they are missing
     // and normalize the identifiers for ObjectNamePart
+    #[instrument(
+        name = "UserQuery::resolve_table_object_name",
+        level = "trace",
+        skip(self),
+        err
+    )]
     pub fn resolve_table_object_name(
         &self,
         mut table_ident: Vec<ObjectNamePart>,

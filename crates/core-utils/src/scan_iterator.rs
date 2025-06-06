@@ -6,6 +6,7 @@ use slatedb::Db as SlateDb;
 use snafu::prelude::*;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use tracing::instrument;
 
 #[async_trait]
 pub trait ScanIterator: Sized {
@@ -82,6 +83,13 @@ impl<T: Send + for<'de> serde::de::Deserialize<'de>> VecScanIterator<T> {
 impl<T: Send + for<'de> serde::de::Deserialize<'de>> ScanIterator for VecScanIterator<T> {
     type Collectable = Vec<T>;
 
+    #[instrument(
+        name = "VecScanIterator::collect",
+        level = "trace",
+        skip(self),
+        fields(keys_range, items_count),
+        err
+    )]
     async fn collect(self) -> Result<Self::Collectable> {
         //We can look with respect to limit
         // from start to end (full scan),
@@ -102,6 +110,9 @@ impl<T: Send + for<'de> serde::de::Deserialize<'de>> ScanIterator for VecScanIte
         );
         let limit = self.limit.unwrap_or(u16::MAX) as usize;
 
+        // Record the result as part of the current span.
+        tracing::Span::current().record("keys_range", format!("{start}..{end}"));
+
         let range = Bytes::from(start)..Bytes::from(end);
         let mut iter = self.db.scan(range).await.context(ScanFailedSnafu)?;
 
@@ -116,6 +127,10 @@ impl<T: Send + for<'de> serde::de::Deserialize<'de>> ScanIterator for VecScanIte
                 break;
             }
         }
+
+        // Record the result as part of the current span.
+        tracing::Span::current().record("items_count", objects.len());
+
         Ok(objects)
     }
 }
