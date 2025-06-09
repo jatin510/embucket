@@ -1,7 +1,6 @@
 ---
 source: crates/core-executor/src/tests/query.rs
 description: "\"SHOW COLUMNS\""
-snapshot_kind: text
 ---
 Ok(
     [
