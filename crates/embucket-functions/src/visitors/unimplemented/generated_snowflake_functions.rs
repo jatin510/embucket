@@ -662,12 +662,6 @@ pub const CONVERSION_FUNCTIONS: &[(&str, FunctionInfo)] = &[
     )
     .with_docs("https://docs.snowflake.com/en/sql-reference/functions/to_char")
     ),
-    ("TO_VARIANT", FunctionInfo::new(
-        "TO_VARIANT",
-        "Converts any value to a VARIANT value or NULL (if input is NULL)."
-    )
-    .with_docs("https://docs.snowflake.com/en/sql-reference/functions/to_variant")
-    ),
     ("TO_XML", FunctionInfo::new(
         "TO_XML",
         "Converts a VARIANT to a VARCHAR that contains an XML representation of the value."
