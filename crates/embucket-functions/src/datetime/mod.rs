@@ -5,6 +5,7 @@ pub mod date_diff;
 pub mod date_from_parts;
 pub mod dayname;
 pub mod last_day;
+pub mod monthname;
 pub mod next_day;
 pub mod previous_day;
 pub mod time_from_parts;
